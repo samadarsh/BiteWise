@@ -1,4 +1,4 @@
-# NutriOrder AI 🥗
+# 🥗 NutriOrder AI
 
 AI-powered nutrition-aware food ordering agent that recommends high-protein meals based on user goals, budget, and preferences, and places confirmed orders through Swiggy MCP.
 
