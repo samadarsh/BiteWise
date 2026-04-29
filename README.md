@@ -158,14 +158,6 @@ This repository currently focuses on:
 
 ---
 
-## 👤 Author
-
-Sam Adarsh  
-AI & Data Science | Building AI systems for real-world automation  
-Founder @ Haugtun  
-
----
-
 ## 📝 Note
 
 This project is being built as part of the Swiggy Builders Club program.
