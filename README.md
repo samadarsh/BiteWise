@@ -36,6 +36,9 @@ NutriOrder AI acts as an AI-driven decision layer on top of Swiggy, enabling use
 - 🛒 Smart cart management via Swiggy MCP  
 - ✅ Safe order placement with user confirmation  
 - 📦 Real-time order tracking  
+- 🎙️ Multi-modal voice support (record or upload audio files)
+- ⚙️ Configurable Whisper model selection and audio normalization
+- 🛠️ Developer tools (Voice JSON testing form, transcript debug panels)
 
 ---
 
@@ -56,6 +59,31 @@ User → Frontend → AI Agent → Address Resolution → Swiggy MCP Food Server
 9. Require explicit user confirmation  
 10. Place order using `place_food_order`  
 11. Track order using `track_food_order`  
+
+### 🎙️ Voice JSON Contract
+
+Voice transcription must be normalized into this exact JSON shape before it enters
+the NutriOrderAI pipeline:
+
+```json
+{
+  "intent": "order_food",
+  "protein_goal": 30,
+  "budget": 200,
+  "delivery_time": 30,
+  "preferences": ["chicken", "no spicy"],
+  "location": "user_location"
+}
+```
+
+The Groq intent parser in `voice_interface/intent_parser.py` is prompted to return
+only these six keys. The agent accepts this payload directly through
+`recommend_meal_from_json(...)` and adapts it into the internal recommendation
+constraints.
+
+If Groq returns malformed JSON or the wrong schema, NutriOrderAI retries once with
+the validation error. A second failure asks the user to clarify the voice command
+instead of sending uncertain input into the ordering pipeline.
 
 ### 🧪 Current MVP Note
 
@@ -100,9 +128,13 @@ NutriOrderAI/
 
 - 🎨 Frontend: Streamlit  
 - 🧠 Agent Layer: Python orchestration layer  
+- 🎙️ Voice: Streamlit audio recording/upload + Whisper transcription + Groq intent parsing
 - 🔌 Execution Layer: Swiggy MCP Food Server  
 - ⚙️ Config: `python-dotenv`  
 - 🚀 Future Upgrade Path: OpenAI Agents SDK or LangGraph  
+
+Voice transcription expects `ffmpeg` to be available on the system path for
+audio conversion and normalization.
 
 ---
 
