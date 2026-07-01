@@ -211,3 +211,123 @@ def test_place_order_requires_staging_and_allow_flag():
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+
+def test_database_models_and_queries():
+    """Verify that database tables can be created and queried successfully."""
+    from backend.db.session import engine, Base, SessionLocal
+    from backend.db.models import User, UserProfile
+    
+    # Create all tables in SQLite
+    Base.metadata.create_all(bind=engine)
+    
+    db = SessionLocal()
+    try:
+        # Clean up existing user if any
+        db.query(User).filter(User.id == "test_db_user").delete()
+        db.commit()
+        
+        # Insert a user
+        u = User(id="test_db_user")
+        db.add(u)
+        db.commit()
+        
+        profile = UserProfile(
+            user_id="test_db_user",
+            protein_target=45,
+            calorie_target=800,
+            diet_preference="veg"
+        )
+        db.add(profile)
+        db.commit()
+        
+        # Retrieve user and profile
+        retrieved_user = db.query(User).filter(User.id == "test_db_user").first()
+        assert retrieved_user is not None
+        assert retrieved_user.profile.protein_target == 45
+        assert retrieved_user.profile.diet_preference == "veg"
+    finally:
+        db.close()
+
+
+def test_cryptography_fail_closed():
+    """Verify GCM encryption/decryption operates securely and fails closed on missing/invalid keys."""
+    from backend.auth.sessions import encrypt_token, decrypt_token
+    import secrets
+    
+    original_key = os.environ.get("ENCRYPTION_KEY")
+    try:
+        # 1. Missing key must fail closed
+        os.environ.pop("ENCRYPTION_KEY", None)
+        assert_raises(ValueError, encrypt_token, "my_token")
+        
+        # 2. Invalid key size must fail closed
+        os.environ["ENCRYPTION_KEY"] = "short_key"
+        assert_raises(ValueError, encrypt_token, "my_token")
+        
+        # 3. Valid key (exactly 32 bytes or 64 hex characters)
+        os.environ["ENCRYPTION_KEY"] = secrets.token_hex(32)  # 64 hex chars = 32 bytes
+        token = "swiggy_secret_oauth_123"
+        encrypted = encrypt_token(token)
+        assert encrypted != token.encode("utf-8")
+        
+        decrypted = decrypt_token(encrypted)
+        assert decrypted == token
+        
+        # 4. Decryption must fail closed if tag/nonce is tampered or key is wrong
+        os.environ["ENCRYPTION_KEY"] = secrets.token_hex(32)  # different key
+        assert_raises(Exception, decrypt_token, encrypted)
+    finally:
+        if original_key is not None:
+            os.environ["ENCRYPTION_KEY"] = original_key
+        else:
+            os.environ.pop("ENCRYPTION_KEY", None)
+
+
+def test_production_swiggy_client_token_loading():
+    """Verify that ProductionSwiggyClient loads and decrypts user tokens successfully from DB."""
+    from backend.db.session import engine, Base, SessionLocal
+    from backend.db.models import User, SwiggyToken
+    from backend.auth.sessions import encrypt_token
+    from backend.mcp.swiggy_client import ProductionSwiggyClient
+    import secrets
+    import datetime
+    import asyncio
+    
+    # Setup test DB tables
+    Base.metadata.create_all(bind=engine)
+    
+    original_key = os.environ.get("ENCRYPTION_KEY")
+    os.environ["ENCRYPTION_KEY"] = secrets.token_hex(32)
+    
+    db = SessionLocal()
+    try:
+        # Clean up
+        db.query(SwiggyToken).filter(SwiggyToken.user_id == "test_mcp_user").delete()
+        db.query(User).filter(User.id == "test_mcp_user").delete()
+        db.commit()
+        
+        u = User(id="test_mcp_user")
+        db.add(u)
+        
+        encrypted_token = encrypt_token("real_staging_bearer_token")
+        token_record = SwiggyToken(
+            user_id="test_mcp_user",
+            encrypted_access_token=encrypted_token,
+            expires_at=datetime.datetime.now() + datetime.timedelta(days=5)
+        )
+        db.add(token_record)
+        db.commit()
+        
+        # Instantiate production Swiggy client wrapper
+        prod_client = ProductionSwiggyClient(user_id="test_mcp_user")
+        underlying = asyncio.run(prod_client._get_initialized_client())
+        
+        # Verify decrypted token was loaded correctly
+        assert underlying.token == "real_staging_bearer_token"
+    finally:
+        db.close()
+        if original_key is not None:
+            os.environ["ENCRYPTION_KEY"] = original_key
+        else:
+            os.environ.pop("ENCRYPTION_KEY", None)

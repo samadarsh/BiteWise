@@ -1,6 +1,10 @@
 from typing import Any, Dict, List, Optional
 from mcp.mcp_client import SwiggyFoodMCPClient
 
+from backend.db.session import SessionLocal
+from backend.db.models import SwiggyToken
+from backend.auth.sessions import decrypt_token
+
 class ProductionSwiggyClient:
     """
     Production Swiggy MCP Client Wrapper.
@@ -17,11 +21,23 @@ class ProductionSwiggyClient:
         if self._client:
             return self._client
             
-        raise NotImplementedError(
-            "Production Swiggy token loading is not implemented yet. "
-            "Fetch the encrypted token from the database and decrypt it before "
-            "initializing SwiggyFoodMCPClient."
-        )
+        # Open a DB connection session
+        db = SessionLocal()
+        try:
+            token_record = db.query(SwiggyToken).filter(SwiggyToken.user_id == self.user_id).first()
+            if not token_record:
+                raise ValueError(f"No Swiggy token registered for user: {self.user_id}")
+                
+            # Decrypt token
+            decrypted_token = decrypt_token(token_record.encrypted_access_token)
+            
+            self._client = SwiggyFoodMCPClient(
+                base_url=None,  # Defaults to staging URL
+                token=decrypted_token
+            )
+            return self._client
+        finally:
+            db.close()
 
     async def get_addresses(self) -> List[Dict[str, Any]]:
         client = await self._get_initialized_client()

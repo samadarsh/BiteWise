@@ -20,6 +20,9 @@ def run_suite():
         ("test_real_schema_arguments", test_integration.test_real_schema_arguments),
         ("test_non_idempotent_order_safety", test_integration.test_non_idempotent_order_safety),
         ("test_place_order_requires_staging_and_allow_flag", test_integration.test_place_order_requires_staging_and_allow_flag),
+        ("test_database_models_and_queries", test_integration.test_database_models_and_queries),
+        ("test_cryptography_fail_closed", test_integration.test_cryptography_fail_closed),
+        ("test_production_swiggy_client_token_loading", test_integration.test_production_swiggy_client_token_loading),
     ]
 
     passed = 0
