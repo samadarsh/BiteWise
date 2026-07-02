@@ -91,7 +91,8 @@ export interface RecommendationResponse {
       item_id: string;
       restaurant_id: string;
       restaurant_name: string;
-      name: string;
+      name?: string;
+      item_name?: string;
       price: number;
       delivery_time_min: number;
       protein_g: number;
@@ -102,7 +103,8 @@ export interface RecommendationResponse {
       item_id: string;
       restaurant_id: string;
       restaurant_name: string;
-      name: string;
+      name?: string;
+      item_name?: string;
       price: number;
       delivery_time_min: number;
       protein_g: number;

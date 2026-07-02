@@ -2,9 +2,23 @@ from typing import Any, Dict, List, Optional
 from mcp.mcp_client import SwiggyMCPError, SwiggyAuthError
 
 class MockSwiggyFoodMCP:
-    def __init__(self) -> None:
-        self._cart = {"restaurantId": None, "cartItems": [], "restaurantName": None}
-        self._orders: Dict[str, Dict[str, Any]] = {}
+    _carts_by_user: Dict[str, Dict[str, Any]] = {}
+    _orders_by_user: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+    def __init__(self, user_id: str = "demo_user") -> None:
+        self.user_id = user_id
+        if user_id not in self._carts_by_user:
+            self._carts_by_user[user_id] = {
+                "restaurantId": None,
+                "cartItems": [],
+                "restaurantName": None,
+                "total": 0,
+                "bill": {"total": 0},
+            }
+        if user_id not in self._orders_by_user:
+            self._orders_by_user[user_id] = {}
+        self._cart = self._carts_by_user[user_id]
+        self._orders = self._orders_by_user[user_id]
         self._restaurants = [
             {
                 "id": "rest_1",
@@ -131,13 +145,41 @@ class MockSwiggyFoodMCP:
         return results
 
     def update_food_cart(self, restaurantId: str, cartItems: List[Dict[str, Any]], addressId: str, restaurantName: Optional[str] = None) -> Dict[str, Any]:
+        resolved_restaurant_name = restaurantName or "Mock Restaurant"
+        item_lookup = {}
+        for rest in self._restaurants:
+            if rest["id"] == restaurantId:
+                resolved_restaurant_name = restaurantName or rest["name"]
+            for menu_item in rest["menu"]:
+                item_lookup[menu_item["id"]] = menu_item
+
+        total = 0
+        enriched_items = []
+        for cart_item in cartItems:
+            item_id = cart_item.get("itemId")
+            quantity = int(cart_item.get("quantity", 1) or 1)
+            item_details = item_lookup.get(item_id, {})
+            item_total = int(item_details.get("price", 0) or 0) * quantity
+            total += item_total
+            enriched_item = dict(cart_item)
+            if item_details:
+                enriched_item.update({
+                    "name": item_details.get("name"),
+                    "price": item_details.get("price"),
+                    "lineTotal": item_total,
+                })
+            enriched_items.append(enriched_item)
+
         self._cart = {
             "restaurantId": restaurantId,
-            "cartItems": cartItems,
+            "cartItems": enriched_items,
             "addressId": addressId,
-            "restaurantName": restaurantName or "Mock Restaurant",
+            "restaurantName": resolved_restaurant_name,
+            "total": total,
+            "bill": {"total": total},
             "message": "Mock cart updated successfully."
         }
+        self._carts_by_user[self.user_id] = self._cart
         return dict(self._cart)
 
     def get_food_cart(self, addressId: str, restaurantName: Optional[str] = None) -> Dict[str, Any]:

@@ -88,9 +88,9 @@ async def get_current_user_id(request: Request) -> str:
                     calorie_target=650,
                     protein_target=35,
                     diet_preference="any",
-                    allergies="[]",
-                    dislikes="[]",
-                    favorite_cuisines="[\"indian\"]"
+                    allergies=[],
+                    dislikes=[],
+                    favorite_cuisines=["indian"]
                 )
                 db.add(profile)
                 db.commit()

@@ -26,7 +26,7 @@ class ProductionSwiggyClient:
 
         # Mock mode fallback
         if os.getenv("USE_MOCK_MCP", "true").lower() == "true":
-            self._client = MockSwiggyFoodMCP()
+            self._client = MockSwiggyFoodMCP(user_id=self.user_id)
             return self._client
             
         db = SessionLocal()

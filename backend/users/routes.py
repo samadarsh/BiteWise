@@ -36,9 +36,9 @@ async def get_user_profile(
             protein_target=35,
             calorie_target=650,
             diet_preference="any",
-            allergies="[]",
-            dislikes="[]",
-            favorite_cuisines="[\"indian\"]",
+            allergies=[],
+            dislikes=[],
+            favorite_cuisines=["indian"],
             fitness_goal="maintenance"
         )
         db.add(profile)
@@ -72,9 +72,9 @@ async def update_user_profile(
     profile.protein_target = profile_data.protein_target
     profile.calorie_target = profile_data.calorie_target
     profile.diet_preference = profile_data.diet_preference
-    profile.allergies = json.dumps(profile_data.allergies)
-    profile.dislikes = json.dumps(profile_data.dislikes)
-    profile.favorite_cuisines = json.dumps(profile_data.favorite_cuisines)
+    profile.allergies = profile_data.allergies
+    profile.dislikes = profile_data.dislikes
+    profile.favorite_cuisines = profile_data.favorite_cuisines
     profile.fitness_goal = profile_data.fitness_goal
     
     db.commit()

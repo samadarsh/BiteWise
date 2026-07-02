@@ -23,6 +23,7 @@ def run_suite():
         ("test_database_models_and_queries", test_integration.test_database_models_and_queries),
         ("test_cryptography_fail_closed", test_integration.test_cryptography_fail_closed),
         ("test_production_swiggy_client_token_loading", test_integration.test_production_swiggy_client_token_loading),
+        ("test_mock_swiggy_cart_is_per_user_and_request_safe", test_integration.test_mock_swiggy_cart_is_per_user_and_request_safe),
         ("test_db_backed_memory_manager", test_integration.test_db_backed_memory_manager),
         ("test_order_state_machine_validation", test_integration.test_order_state_machine_validation),
         ("test_production_checkout_validation_rules", test_integration.test_production_checkout_validation_rules),

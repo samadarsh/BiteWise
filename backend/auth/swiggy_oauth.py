@@ -67,9 +67,9 @@ async def swiggy_oauth_callback(
         protein_target=30,
         calorie_target=600,
         diet_preference="any",
-        allergies="[]",
-        dislikes="[]",
-        favorite_cuisines="[\"indian\"]",
+        allergies=[],
+        dislikes=[],
+        favorite_cuisines=["indian"],
         fitness_goal="maintenance"
     )
     db.add(profile)
@@ -123,9 +123,9 @@ async def demo_login(response: Response, db: Session = Depends(get_db)) -> Dict[
         protein_target=35,
         calorie_target=650,
         diet_preference="any",
-        allergies="[]",
-        dislikes="[]",
-        favorite_cuisines="[\"indian\"]",
+        allergies=[],
+        dislikes=[],
+        favorite_cuisines=["indian"],
         fitness_goal="maintenance"
     )
     db.add(profile)

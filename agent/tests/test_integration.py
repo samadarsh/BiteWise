@@ -340,6 +340,39 @@ def test_production_swiggy_client_token_loading():
             os.environ.pop("USE_MOCK_MCP", None)
 
 
+def test_mock_swiggy_cart_is_per_user_and_request_safe():
+    """Verify mock cart state survives request-scoped clients without leaking across users."""
+    from backend.mcp.swiggy_client import ProductionSwiggyClient
+
+    original_use_mock = os.environ.get("USE_MOCK_MCP")
+    os.environ["USE_MOCK_MCP"] = "true"
+
+    try:
+        first_request = ProductionSwiggyClient(user_id="mock_cart_user_a")._get_initialized_client()
+        first_request.update_food_cart(
+            restaurantId="rest_1",
+            cartItems=[{"itemId": "item_1", "quantity": 1}],
+            addressId="addr_home",
+        )
+
+        second_request = ProductionSwiggyClient(user_id="mock_cart_user_a")._get_initialized_client()
+        cart = second_request.get_food_cart(addressId="addr_home")
+        assert cart["restaurantId"] == "rest_1"
+        assert cart["cartItems"][0]["itemId"] == "item_1"
+        assert cart["total"] == 289
+        assert cart["bill"]["total"] == 289
+
+        other_user = ProductionSwiggyClient(user_id="mock_cart_user_b")._get_initialized_client()
+        other_cart = other_user.get_food_cart(addressId="addr_home")
+        assert other_cart["cartItems"] == []
+        assert other_cart["total"] == 0
+    finally:
+        if original_use_mock is not None:
+            os.environ["USE_MOCK_MCP"] = original_use_mock
+        else:
+            os.environ.pop("USE_MOCK_MCP", None)
+
+
 def test_db_backed_memory_manager():
     """Verify that UserMemoryManager reads and writes profiles correctly using SQLAlchemy DB."""
     from backend.db.session import engine, Base, SessionLocal
@@ -437,26 +470,26 @@ class MockSwiggyCheckoutClient:
     def update_food_cart(self, restaurantId, cartItems, addressId, restaurantName=None):
         return {"success": True}
 
-    def search_menu(self, addressId, query, vegFilter=0):
+    def search_menu(self, addressId, query, restaurantIdOfAddedItem=None, vegFilter=0, offset=None):
         return [{
-            "restaurantId": "rest_paneer",
-            "restaurantName": "Healthy Paneer",
-            "itemId": "item_paneer_bowl",
+            "id": "item_paneer_bowl",
+            "restaurant_id": "rest_paneer",
+            "restaurant_name": "Healthy Paneer",
             "name": "Paneer Bowl",
             "price": 250,
-            "proteins": 35,
+            "protein_g": 35,
             "calories": 450
         }]
 
-    def search_restaurants(self, addressId, query):
+    def search_restaurants(self, addressId, query, offset=None):
         return [{"id": "rest_paneer", "name": "Healthy Paneer"}]
 
-    def get_restaurant_menu(self, addressId, restaurantId):
+    def get_restaurant_menu(self, addressId, restaurantId, page=None, pageSize=None):
         return [{
-            "itemId": "item_paneer_bowl",
+            "id": "item_paneer_bowl",
             "name": "Paneer Bowl",
             "price": 250,
-            "proteins": 35,
+            "protein_g": 35,
             "calories": 450
         }]
 
@@ -616,7 +649,9 @@ def test_recommendations_search_endpoint():
             res = asyncio.run(search_recommendations("test_rec_sess", "chicken salad", "test_rec_user", db))
             assert res["success"] is True
             assert res["status"] == OrderStatus.RECOMMENDATIONS_READY.value
-            
+            assert res["results"]["success"] is True
+            assert len(res["results"]["recommendations"]) > 0
+
             db.refresh(sess)
             assert sess.status == OrderStatus.RECOMMENDATIONS_READY.value
             assert sess.query == "chicken salad"
@@ -680,6 +715,8 @@ def test_complete_journey_routes():
             from backend.recommendations.routes import search_recommendations
             res = asyncio.run(search_recommendations(session_id, "paneer", "journey_user", db))
             assert res["status"] == OrderStatus.RECOMMENDATIONS_READY.value
+            assert res["results"]["success"] is True
+            assert len(res["results"]["recommendations"]) > 0
             
             # 3. Select Item (Simulating search results matching and clicking paneer bowl)
             res = asyncio.run(select_item(session_id, "rest_paneer", "item_paneer_bowl", "journey_user", db))

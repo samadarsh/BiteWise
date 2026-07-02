@@ -163,11 +163,11 @@ export default function NutriOrderDashboard() {
       const rawCandidates = res.results.recommendations || [];
       const mapped = rawCandidates.map((c) => ({
         id: c.item_id,
-        name: c.name,
+        name: c.name || c.item_name || "Recommended meal",
         restaurant: c.restaurant_name || "Unknown Restaurant",
         price: c.price,
-        eta: `${c.delivery_time_min} mins`,
-        protein: `${c.protein_g}g`,
+        eta: `${c.delivery_time_min || 30} mins`,
+        protein: `${c.protein_g || 0}g`,
         calories: c.calories ? `${c.calories} kcal` : "N/A",
         score: c.match_score || 80,
         reasons: c.explanations || ["Fits nutritional criteria."],
