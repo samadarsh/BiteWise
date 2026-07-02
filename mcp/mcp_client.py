@@ -28,12 +28,12 @@ class SwiggyFoodMCPClient:
         """Generic method to call a Swiggy MCP tool using standard JSON-RPC 2.0 tools/call."""
         if not self.token:
             raise SwiggyAuthError("Authentication token (SWIGGY_TOKEN) is not configured.")
-        
+
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json"
         }
-        
+
         payload = {
             "jsonrpc": "2.0",
             "method": "tools/call",
@@ -43,43 +43,43 @@ class SwiggyFoodMCPClient:
             },
             "id": 1
         }
-        
+
         # Log arguments without printing sensitive authorization token
         log_info(f"Initiating MCP JSON-RPC call to: {tool_name}", extra={"tool": tool_name, "arguments": arguments})
-        
+
         try:
             response = requests.post(self.base_url, json=payload, headers=headers, timeout=15)
-            
+
             # Detect 401 Unauthorized directly
             if response.status_code == 401:
                 log_error("OAuth token has expired or is invalid (HTTP 401).", error_category="unauthenticated")
                 raise SwiggyAuthError("Your Swiggy login session has expired. Please re-authenticate.", status_code=401)
-                
+
             response.raise_for_status()
-            
+
             response_json = response.json()
-            
+
             # Handle JSON-RPC 2.0 error block
             if "error" in response_json:
                 rpc_err = response_json["error"]
                 err_code = rpc_err.get("code")
                 err_msg = rpc_err.get("message", "Unknown JSON-RPC error")
-                
+
                 # Check for standard MCP session authentication error codes (e.g. -32001 or unauthenticated msg)
                 if err_code in [-32001, -32002] or "unauthorized" in err_msg.lower() or "auth" in err_msg.lower():
                     raise SwiggyAuthError(f"Authentication failed: {err_msg}", error_code=err_code)
-                    
+
                 raise SwiggyMCPError(f"Swiggy MCP error: {err_msg}", error_code=err_code)
-                
+
             result = response_json.get("result", {})
             content_list = result.get("content", [])
             if not content_list:
                 raise SwiggyMCPError("MCP response returned empty content.")
-                
+
             text_content = content_list[0].get("text", "")
             if not text_content:
                 raise SwiggyMCPError("MCP response returned an empty text block.")
-                
+
             # Parse Swiggy standard envelope from the text block
             try:
                 parsed_res = json.loads(text_content)
@@ -91,7 +91,7 @@ class SwiggyFoodMCPClient:
                     "data": {"text": text_content},
                     "message": "Raw text fallback parsed"
                 }
-                
+
         except requests.exceptions.RequestException as e:
             # Check for sub-exception containing status code
             status = getattr(e.response, "status_code", None) if hasattr(e, "response") else None
@@ -104,18 +104,18 @@ class SwiggyFoodMCPClient:
         success = envelope.get("success", False)
         data = envelope.get("data")
         msg = envelope.get("message")
-        
+
         if success:
             return data
-            
+
         # Parse error message from Swiggy error block or fallback message
         err = envelope.get("error", {})
         err_msg = err.get("message") or msg or "Unknown error occurred"
-        
+
         # Check if error message indicates authentication failure
         if "auth" in err_msg.lower() or "expire" in err_msg.lower() or "token" in err_msg.lower():
             raise SwiggyAuthError(f"Unauthenticated: {err_msg}")
-            
+
         raise SwiggyMCPError(err_msg)
 
     # Standard aligned Food tools:
@@ -175,6 +175,20 @@ class SwiggyFoodMCPClient:
         res = self.call_tool("get_food_orders", args)
         return self._unpack_and_normalize(res)
 
+    def fetch_food_coupons(self, restaurantId: str, addressId: str, couponCode: Optional[str] = None) -> List[Dict[str, Any]]:
+        args = {"restaurantId": restaurantId, "addressId": addressId}
+        if couponCode is not None:
+            args["couponCode"] = couponCode
+        res = self.call_tool("fetch_food_coupons", args)
+        return self._unpack_and_normalize(res)
+
+    def apply_food_coupon(self, couponCode: str, addressId: str, cartId: Optional[str] = None) -> Dict[str, Any]:
+        args = {"couponCode": couponCode, "addressId": addressId}
+        if cartId is not None:
+            args["cartId"] = cartId
+        res = self.call_tool("apply_food_coupon", args)
+        return self._unpack_and_normalize(res)
+
     def place_food_order(self, addressId: str, paymentMethod: Optional[str] = "COD") -> Dict[str, Any]:
         # Lock safety check: staging placement requires both explicit staging mode
         # and an explicit allow flag. Never let either flag alone unlock ordering.
@@ -184,7 +198,7 @@ class SwiggyFoodMCPClient:
                 "Safety Lock: place_food_order is disabled unless SWIGGY_ENV=staging "
                 "and ALLOW_PLACE_ORDER=true."
             )
-        
+
         args = {"addressId": addressId, "paymentMethod": paymentMethod}
         res = self.call_tool("place_food_order", args)
         return self._unpack_and_normalize(res)

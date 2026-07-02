@@ -93,6 +93,9 @@ export interface RecommendationMeal {
   restaurant_id?: string;
   item_id?: string;
   restaurant_name?: string;
+  distance_km?: number;
+  delivery_time_spoken?: string;
+  short_description?: string;
 }
 
 export interface RecommendationResponse {
@@ -174,6 +177,19 @@ export interface PlaceOrderResponse {
   order_id?: string;
   status: string;
 }
+
+export interface Coupon {
+  code: string;
+  description: string;
+  discount_amount: number;
+  requiresOnlinePayment: boolean;
+}
+
+export interface CouponsResponse {
+  success: boolean;
+  coupons: Coupon[];
+}
+
 
 // API Endpoints
 export const api = {
@@ -313,5 +329,22 @@ export const api = {
         body: JSON.stringify(feedback)
       }
     );
+  },
+
+  /**
+   * Fetches applicable coupons for the session.
+   */
+  async fetchCoupons(sessionId: string): Promise<CouponsResponse> {
+    return apiFetch<CouponsResponse>(`/orders/session/${sessionId}/coupons`);
+  },
+
+  /**
+   * Applies a coupon code to the session cart.
+   */
+  async applyCoupon(sessionId: string, couponCode: string): Promise<CartResponse> {
+    return apiFetch<CartResponse>(`/orders/session/${sessionId}/coupon/apply`, {
+      method: "POST",
+      body: JSON.stringify({ coupon_code: couponCode }),
+    });
   },
 };

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from "react";
-import { api, BASE_URL, UserProfile, Address, RecommendationMeal, CartInfo } from "../lib/api";
+import { api, BASE_URL, UserProfile, Address, RecommendationMeal, CartInfo, Coupon } from "../lib/api";
 import OnboardingPanel from "../components/OnboardingPanel";
 import PriorityControls, { PriorityWeights } from "../components/PriorityControls";
 import RecommendationCard from "../components/RecommendationCard";
@@ -17,7 +17,7 @@ export default function NutriOrderDashboard() {
   // DB-Backed Core States
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddress, setSelectedAddress] = useState<string>("");
-  
+
   // Profile targets matching backend model
   const [fitnessGoal, setFitnessGoal] = useState<string>("maintenance");
   const [proteinTarget, setProteinTarget] = useState<number>(35);
@@ -34,7 +34,7 @@ export default function NutriOrderDashboard() {
   const [searchLoading, setSearchLoading] = useState<boolean>(false);
   const [recommendations, setRecommendations] = useState<RecommendationMeal[]>([]);
   const [selectedMeal, setSelectedMeal] = useState<RecommendationMeal | null>(null);
-  
+
   // Cart & Place States
   const [cartPreview, setCartPreview] = useState<CartInfo | null>(null);
   const [cartLoading, setCartLoading] = useState<boolean>(false);
@@ -43,6 +43,9 @@ export default function NutriOrderDashboard() {
   const [placedOrderId, setPlacedOrderId] = useState<string>("");
   const [trackingStep, setTrackingStep] = useState<number>(0);
   const [trackingIntervalId, setTrackingIntervalId] = useState<ReturnType<typeof setInterval> | null>(null);
+  const [applicableCoupons, setApplicableCoupons] = useState<Coupon[]>([]);
+  const [couponsLoading, setCouponsLoading] = useState<boolean>(false);
+  const [appliedCoupon, setAppliedCoupon] = useState<string>("");
 
   // Sprint 2 Personalized Intelligence States
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -164,7 +167,7 @@ export default function NutriOrderDashboard() {
       const boundSess = await api.selectAddress(sess.session_id, addrId);
       setActiveSessionId(sess.session_id);
       setSessionStatus(boundSess.status);
-      
+
       // Reset subsequent flow items
       setRecommendations([]);
       setSelectedMeal(null);
@@ -187,7 +190,7 @@ export default function NutriOrderDashboard() {
     try {
       const res = await api.searchRecommendations(activeSessionId, searchQuery, priorityWeights);
       setSessionStatus(res.status);
-      
+
       // Map candidates returned from pipeline
       const rawCandidates = res.results.recommendations || [];
       const mapped = rawCandidates.map((c) => ({
@@ -205,9 +208,10 @@ export default function NutriOrderDashboard() {
         confidence: c.confidence || 1.0,
         is_estimated: c.is_estimated !== false,
         restaurant_id: c.restaurant_id,
-        item_id: c.item_id
+        item_id: c.item_id,
+        distance_km: c.distance_km as number | undefined
       }));
-      
+
       setRecommendations(mapped);
       setRelaxationOptions(res.results.relaxation_options || []);
       setSelectedMeal(null);
@@ -225,20 +229,48 @@ export default function NutriOrderDashboard() {
     setSelectedMeal(meal);
     setCartLoading(true);
     setCheckoutConfirmed(false);
+    setAppliedCoupon("");
+    setApplicableCoupons([]);
     try {
       // 1. Post item selection
       await api.selectItem(activeSessionId, meal.restaurant_id || "", meal.id);
-      
+
       // 2. Sync cart
       await api.syncCart(activeSessionId);
-      
+
       // 3. Review cart
       const cartInfo = await api.reviewCart(activeSessionId);
       setCartPreview(cartInfo.cart);
       setSessionStatus(cartInfo.status);
+
+      // Fetch coupons
+      try {
+        setCouponsLoading(true);
+        const couponsRes = await api.fetchCoupons(activeSessionId);
+        setApplicableCoupons(couponsRes.coupons || []);
+      } catch (couponErr) {
+        console.error("Failed to load coupons", couponErr);
+      } finally {
+        setCouponsLoading(false);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       alert(`Failed to prepare cart: ${msg}`);
+    } finally {
+      setCartLoading(false);
+    }
+  };
+
+  const handleApplyCoupon = async (couponCode: string) => {
+    try {
+      setCartLoading(true);
+      const res = await api.applyCoupon(activeSessionId, couponCode);
+      setCartPreview(res.cart);
+      setAppliedCoupon(couponCode);
+      alert(`Coupon ${couponCode} applied successfully!`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Failed to apply coupon: ${msg}`);
     } finally {
       setCartLoading(false);
     }
@@ -334,7 +366,7 @@ export default function NutriOrderDashboard() {
         patch
       );
       setSessionStatus(res.status);
-      
+
       const rawCandidates = res.results.recommendations || [];
       const mapped = rawCandidates.map((c) => ({
         id: c.item_id,
@@ -351,9 +383,10 @@ export default function NutriOrderDashboard() {
         confidence: c.confidence || 1.0,
         is_estimated: c.is_estimated !== false,
         restaurant_id: c.restaurant_id,
-        item_id: c.item_id
+        item_id: c.item_id,
+        distance_km: c.distance_km as number | undefined
       }));
-      
+
       setRecommendations(mapped);
       setRelaxationOptions(res.results.relaxation_options || []);
       setSelectedMeal(null);
@@ -382,6 +415,8 @@ export default function NutriOrderDashboard() {
     setCheckoutConfirmed(false);
     setPlacedOrderId("");
     setTrackingStep(0);
+    setAppliedCoupon("");
+    setApplicableCoupons([]);
   };
 
   // Toggle allergies checklist helper
@@ -430,21 +465,21 @@ export default function NutriOrderDashboard() {
               <div className="flex items-center gap-3">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-xs text-slate-400 font-mono">Demo Session Active</span>
-                <button 
-                  onClick={() => setEditingProfile(true)} 
+                <button
+                  onClick={() => setEditingProfile(true)}
                   className="text-xs text-emerald-400 hover:text-emerald-300 font-medium px-2 py-1 rounded hover:bg-emerald-500/10 transition"
                 >
                   Edit Profile
                 </button>
-                <button 
-                  onClick={handleLogout} 
+                <button
+                  onClick={handleLogout}
                   className="text-xs text-rose-400 hover:text-rose-300 font-medium px-2 py-1 rounded hover:bg-rose-500/10 transition"
                 >
                   Logout
                 </button>
               </div>
             ) : (
-              <button 
+              <button
                 onClick={handleDemoLogin}
                 disabled={authLoading}
                 className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-800 text-slate-950 font-bold px-4 py-2 rounded-lg text-sm transition shadow-lg shadow-emerald-500/20 flex items-center gap-2"
@@ -480,7 +515,7 @@ export default function NutriOrderDashboard() {
                 <li>Bypasses real OAuth and uses SQLite mocks.</li>
               </ul>
             </div>
-            <button 
+            <button
               onClick={handleDemoLogin}
               disabled={authLoading}
               className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-800 text-slate-950 font-bold py-3.5 rounded-xl transition text-base shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2"
@@ -531,7 +566,7 @@ export default function NutriOrderDashboard() {
             {/* Stepper tracking progress bar */}
             <div className="relative flex justify-between items-center max-w-2xl mx-auto w-full my-4">
               <div className="absolute left-0 right-0 top-1/2 h-1 bg-slate-800 -translate-y-1/2 -z-10" />
-              <div 
+              <div
                 className="absolute left-0 top-1/2 h-1 bg-emerald-500 -translate-y-1/2 -z-10 transition-all duration-1000"
                 style={{ width: `${(trackingStep / 3) * 100}%` }}
               />
@@ -546,8 +581,8 @@ export default function NutriOrderDashboard() {
                 return (
                   <div key={idx} className="flex flex-col items-center text-center">
                     <div className={`h-8 w-8 rounded-full flex items-center justify-center font-bold text-xs border transition duration-500 ${
-                      active 
-                        ? "bg-emerald-500 border-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20" 
+                      active
+                        ? "bg-emerald-500 border-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20"
                         : "bg-slate-950 border-slate-880 text-slate-600"
                     }`}>
                       {idx + 1}
@@ -586,8 +621,8 @@ export default function NutriOrderDashboard() {
               </div>
             </div>
 
-            <button 
-              onClick={handleReset} 
+            <button
+              onClick={handleReset}
               className="mt-6 self-center bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold px-6 py-2.5 rounded-lg text-sm transition"
             >
               Order Something Else
@@ -599,10 +634,10 @@ export default function NutriOrderDashboard() {
         <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Left Columns: Address, Profile & Query */}
           <div className="lg:col-span-5 flex flex-col gap-8">
-            
+
             {/* Dynamic Priorities Control */}
             <PriorityControls weights={priorityWeights} onChange={setPriorityWeights} />
-            
+
             {/* Step 1: Address Selection */}
             <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-4">
               <div className="flex justify-between items-center">
@@ -620,12 +655,12 @@ export default function NutriOrderDashboard() {
                   addresses.map((addr) => {
                     const isChosen = selectedAddress === addr.id;
                     return (
-                      <div 
+                      <div
                         key={addr.id}
                         onClick={() => handleAddressSelect(addr.id)}
                         className={`cursor-pointer border rounded-lg p-3 flex flex-col gap-1 transition ${
-                          isChosen 
-                            ? "bg-slate-950/80 border-emerald-500 shadow-md shadow-emerald-500/5" 
+                          isChosen
+                            ? "bg-slate-950/80 border-emerald-500 shadow-md shadow-emerald-500/5"
                             : "bg-slate-950/20 border-slate-800 hover:border-slate-700"
                         }`}
                       >
@@ -647,8 +682,8 @@ export default function NutriOrderDashboard() {
             <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-5">
               <div className="flex justify-between items-center">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">2. Nutritional Profile</h3>
-                <button 
-                  onClick={() => setEditingProfile(true)} 
+                <button
+                  onClick={() => setEditingProfile(true)}
                   className="text-[10px] text-emerald-400 hover:underline"
                 >
                   Edit Biometrics ⚙️
@@ -667,7 +702,7 @@ export default function NutriOrderDashboard() {
                   Reasoning: {profile?.fitness_goal ? (profile.fitness_goal === "fat_loss" ? "High protein calorie deficit" : profile.fitness_goal === "muscle_gain" ? "Hypertrophic calorie surplus" : "Iso-caloric maintenance") : "Default weights active."}
                 </p>
               </div>
-              
+
               {/* Fitness Goal Buttons */}
               <div>
                 <label className="block text-xs text-slate-400 font-semibold mb-2">Goal Override</label>
@@ -700,8 +735,8 @@ export default function NutriOrderDashboard() {
                           syncProfileChange(goal.id, prot, cal, allergies);
                         }}
                         className={`text-xs font-semibold py-2 px-1 rounded-lg border transition ${
-                          active 
-                            ? "bg-emerald-500 border-emerald-400 text-slate-950 font-bold" 
+                          active
+                            ? "bg-emerald-500 border-emerald-400 text-slate-950 font-bold"
                             : "bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-800"
                         }`}
                       >
@@ -719,11 +754,11 @@ export default function NutriOrderDashboard() {
                      <label className="text-xs text-slate-400">Min Protein Target</label>
                      <span className="text-xs font-bold text-emerald-400">{proteinTarget}g</span>
                   </div>
-                  <input 
-                    type="range" 
-                    min="15" 
-                    max="60" 
-                    value={proteinTarget} 
+                  <input
+                    type="range"
+                    min="15"
+                    max="60"
+                    value={proteinTarget}
                     onChange={(e) => {
                       const v = Number(e.target.value);
                       setProteinTarget(v);
@@ -738,11 +773,11 @@ export default function NutriOrderDashboard() {
                     <label className="text-xs text-slate-400">Max Calorie Ceiling</label>
                     <span className="text-xs font-bold text-blue-400">{calorieTarget} kcal</span>
                   </div>
-                  <input 
-                    type="range" 
-                    min="350" 
-                    max="1000" 
-                    value={calorieTarget} 
+                  <input
+                    type="range"
+                    min="350"
+                    max="1000"
+                    value={calorieTarget}
                     onChange={(e) => {
                       const v = Number(e.target.value);
                       setCalorieTarget(v);
@@ -764,8 +799,8 @@ export default function NutriOrderDashboard() {
                         key={allergen}
                         onClick={() => handleAllergyToggle(allergen)}
                         className={`text-xs px-2.5 py-1 rounded-full border transition ${
-                          selected 
-                            ? "bg-rose-500/10 border-rose-500 text-rose-300" 
+                          selected
+                            ? "bg-rose-500/10 border-rose-500 text-rose-300"
                             : "bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-850"
                         }`}
                       >
@@ -780,9 +815,9 @@ export default function NutriOrderDashboard() {
             {/* Step 3: Order Assistant Chat Query */}
             <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-4">
               <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">3. Order Assistant</h3>
-              
+
               <form onSubmit={handleQuerySearch} className="flex flex-col gap-3">
-                <textarea 
+                <textarea
                   rows={2}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -808,7 +843,7 @@ export default function NutriOrderDashboard() {
                   ))}
                 </div>
 
-                <button 
+                <button
                   type="submit"
                   disabled={searchLoading || !selectedAddress}
                   className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-800 text-slate-950 font-bold py-2.5 rounded-xl transition text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/10"
@@ -834,10 +869,10 @@ export default function NutriOrderDashboard() {
             {/* Step 4: Recommendations results list */}
             <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex-1 flex flex-col gap-4">
               <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">4. AI Meal Recommendations</h3>
-              
+
               {/* Smart Constraint Relaxation Payload Options */}
               <RelaxationOptions options={relaxationOptions} onApplyPatch={handleRelaxationApply} loading={searchLoading} />
-              
+
               {recommendations.length === 0 ? (
                 <div className="flex-1 border border-dashed border-slate-800/80 rounded-xl flex flex-col items-center justify-center p-8 text-center text-slate-500 gap-2">
                   <span className="text-3xl">🍲</span>
@@ -866,7 +901,7 @@ export default function NutriOrderDashboard() {
                   <span className="text-[10px] text-emerald-400 font-mono animate-pulse">Syncing...</span>
                 )}
               </div>
-              
+
               {!selectedMeal ? (
                 <p className="text-xs text-slate-500 text-center py-4">Select a meal recommendation card above to review checkout parameters.</p>
               ) : cartLoading ? (
@@ -893,24 +928,83 @@ export default function NutriOrderDashboard() {
                       <span className="text-slate-500">Payment:</span>
                       <span className="font-semibold text-slate-200">Cash On Delivery (COD)</span>
                     </div>
+                    {cartPreview && (cartPreview as any).discount_amount && (cartPreview as any).discount_amount > 0 ? (
+                      <div className="flex justify-between text-xs text-emerald-400">
+                        <span>Coupon Discount ({(cartPreview as any).applied_coupon}):</span>
+                        <span>- Rs {(cartPreview as any).discount_amount}</span>
+                      </div>
+                    ) : null}
                     <div className="flex justify-between border-t border-slate-800 pt-2 font-bold text-slate-200">
                       <span>Total Amount:</span>
-                      <span className="text-emerald-400">Rs {cartPreview?.total || selectedMeal.price}</span>
+                      <span className="text-emerald-400">Rs {cartPreview?.total ?? selectedMeal.price}</span>
                     </div>
+                  </div>
+
+                  {/* Coupon Selector Section */}
+                  <div className="flex flex-col gap-2 border-t border-slate-800 pt-3">
+                    <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">🎟️ Available Coupons</span>
+                    {couponsLoading ? (
+                      <span className="text-xs text-slate-500 font-mono animate-pulse">Loading coupons...</span>
+                    ) : applicableCoupons.length === 0 ? (
+                      <span className="text-xs text-slate-500">No applicable coupons found.</span>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {applicableCoupons.map((c) => (
+                          <div
+                            key={c.code}
+                            className={`flex justify-between items-center p-2.5 rounded-xl border transition text-xs ${
+                              appliedCoupon === c.code
+                                ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-300"
+                                : "bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-300"
+                            }`}
+                          >
+                            <div>
+                              <p className="font-bold">{c.code}</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">{c.description}</p>
+                            </div>
+                            <button
+                              disabled={appliedCoupon === c.code || cartLoading}
+                              onClick={() => handleApplyCoupon(c.code)}
+                              className="bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-bold px-2.5 py-1 rounded-lg text-[10px] transition"
+                            >
+                              {appliedCoupon === c.code ? "Applied" : "Apply"}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Limits and Cap warnings */}
-                  <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 flex items-start gap-2.5 text-xs text-slate-400">
-                    <span className="text-emerald-400 text-sm">🛡️</span>
-                    <div>
-                      <p className="font-bold text-slate-300">Safety Cap Check Passed</p>
-                      <p className="text-slate-500 mt-0.5">Total is below the Rs 1000 limit. Double order prevention lock checks are clear.</p>
+                  {(cartPreview?.total ?? selectedMeal.price) >= 1000 ? (
+                    <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-3 flex items-start gap-2.5 text-xs text-slate-400">
+                      <span className="text-rose-400 text-sm">❌</span>
+                      <div>
+                        <p className="font-bold text-slate-300">Safety Cap Check Failed</p>
+                        <p className="text-slate-500 mt-0.5">Total of Rs {cartPreview?.total ?? selectedMeal.price} meets or exceeds the Swiggy limit of Rs 1000. Checkout is blocked.</p>
+                      </div>
                     </div>
-                  </div>
+                  ) : (cartPreview?.total ?? selectedMeal.price) >= 850 ? (
+                    <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 flex items-start gap-2.5 text-xs text-slate-400">
+                      <span className="text-amber-400 text-sm">⚠️</span>
+                      <div>
+                        <p className="font-bold text-slate-300">Approaching Cart Cap</p>
+                        <p className="text-slate-500 mt-0.5">Total of Rs {cartPreview?.total ?? selectedMeal.price} is approaching the Rs 1000 limit. Double order prevention lock checks are clear.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 flex items-start gap-2.5 text-xs text-slate-400">
+                      <span className="text-emerald-400 text-sm">🛡️</span>
+                      <div>
+                        <p className="font-bold text-slate-300">Safety Cap Check Passed</p>
+                        <p className="text-slate-500 mt-0.5">Total is below the Rs 1000 limit. Double order prevention lock checks are clear.</p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Confirmation Checkbox */}
                   <label className="flex items-center gap-3 cursor-pointer select-none border border-slate-800 rounded-xl p-3 bg-slate-950/20 hover:bg-slate-950/50 transition">
-                    <input 
+                    <input
                       type="checkbox"
                       checked={checkoutConfirmed}
                       onChange={(e) => handleConfirmCheckbox(e.target.checked)}
@@ -922,9 +1016,9 @@ export default function NutriOrderDashboard() {
                     </div>
                   </label>
 
-                  <button 
+                  <button
                     onClick={handlePlaceOrder}
-                    disabled={orderPlacing || !checkoutConfirmed}
+                    disabled={orderPlacing || !checkoutConfirmed || (cartPreview?.total ?? selectedMeal.price) >= 1000}
                     className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-800 text-slate-950 font-bold py-3.5 rounded-xl transition text-base flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/20 uppercase tracking-wider text-xs"
                   >
                     {orderPlacing ? (

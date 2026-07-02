@@ -31,7 +31,14 @@ export default function RecommendationCard({ meal, onSelect, selected, loading }
 
       <div>
         <h4 className="font-bold text-slate-100 text-base max-w-[70%] leading-snug">{meal.name}</h4>
-        <span className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">🏪 {meal.restaurant}</span>
+        <div className="flex flex-wrap items-center gap-2 mt-1">
+          <span className="text-xs text-slate-400 flex items-center gap-1">🏪 {meal.restaurant}</span>
+          {meal.distance_km !== undefined && (
+            <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded-full font-medium">
+              📍 {meal.distance_km} km
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Macro Indicators */}
@@ -63,6 +70,14 @@ export default function RecommendationCard({ meal, onSelect, selected, loading }
           >
             {Math.round(confidence * 100)}% {confidence >= 0.8 ? "High" : confidence >= 0.65 ? "Med" : "Low"}
           </span>
+        </div>
+      )}
+
+      {/* Distance Warning Banner */}
+      {meal.distance_km !== undefined && meal.distance_km > 5 && (
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] p-2.5 rounded-xl flex items-start gap-1.5 leading-normal">
+          <span>⚠️</span>
+          <span>Far distance ({meal.distance_km} km). Expect longer delivery times.</span>
         </div>
       )}
 

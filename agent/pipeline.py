@@ -260,6 +260,9 @@ class NutriOrderPipeline:
                             "is_estimated": is_estimated,
                             "price": item["price"],
                             "delivery_time_min": rest.get("delivery_time_min", 30),
+                            "distance_km": rest.get("distance_km", 2.5),
+                            "delivery_time_spoken": rest.get("deliveryTimeSpoken") or f"about {rest.get('delivery_time_min', 30)} minutes",
+                            "short_description": item.get("shortDescription") or f"{item_name} from {rest['name']}. Estimated {protein} grams of protein and {calories} calories.",
                             "dietary_preference": item.get("dietary_preference", "any"),
                             "rating": rest.get("rating", 4.2),
                             "availabilityStatus": rest.get("availabilityStatus", "OPEN")
@@ -304,7 +307,7 @@ class NutriOrderPipeline:
                 continue
             
             # Hard limit: Swiggy MCP v1.0 has a ₹1000 order cap
-            if c.get("price", 0) > 1000:
+            if c.get("price", 0) >= 1000:
                 continue
 
             valid.append(c)
@@ -393,6 +396,9 @@ class NutriOrderPipeline:
                 "is_estimated": is_estimated,
                 "price": item.get("price", 199),
                 "delivery_time_min": item.get("delivery_time_min", 30),
+                "distance_km": item.get("distance_km", 2.5),
+                "delivery_time_spoken": item.get("deliveryTimeSpoken") or f"about {item.get('delivery_time_min', 30)} minutes",
+                "short_description": item.get("shortDescription") or f"{item_name} from {item.get('restaurant_name', 'Protein Bowl Co')}. Estimated {protein} grams of protein and {calories} calories.",
                 "dietary_preference": item.get("dietary_preference", "any"),
                 "rating": item.get("rating", 4.3),
                 "popularity_score": item.get("popularity_score", 0.85),

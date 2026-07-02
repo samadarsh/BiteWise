@@ -30,16 +30,16 @@ class ProductionSwiggyClient:
         if settings.use_mock_mcp:
             self._client = MockSwiggyFoodMCP(user_id=self.user_id)
             return self._client
-            
+
         db = SessionLocal()
         try:
             token_record = db.query(SwiggyToken).filter(SwiggyToken.user_id == self.user_id).first()
             if not token_record:
                 raise ValueError(f"No Swiggy token registered for user: {self.user_id}")
-                
+
             # Decrypt token
             decrypted_token = decrypt_token(token_record.encrypted_access_token)
-            
+
             self._client = SwiggyFoodMCPClient(
                 base_url=settings.swiggy_mcp_base_url,
                 token=decrypted_token
@@ -85,6 +85,14 @@ class ProductionSwiggyClient:
     def get_food_orders(self, addressId: str, orderCount: Optional[int] = None) -> List[Dict[str, Any]]:
         client = self._get_initialized_client()
         return client.get_food_orders(addressId=addressId, orderCount=orderCount)
+
+    def fetch_food_coupons(self, restaurantId: str, addressId: str, couponCode: Optional[str] = None) -> List[Dict[str, Any]]:
+        client = self._get_initialized_client()
+        return client.fetch_food_coupons(restaurantId=restaurantId, addressId=addressId, couponCode=couponCode)
+
+    def apply_food_coupon(self, couponCode: str, addressId: str, cartId: Optional[str] = None) -> Dict[str, Any]:
+        client = self._get_initialized_client()
+        return client.apply_food_coupon(couponCode=couponCode, addressId=addressId, cartId=cartId)
 
     def track_food_order(self, orderId: str) -> Dict[str, Any]:
         client = self._get_initialized_client()

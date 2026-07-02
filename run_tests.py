@@ -41,6 +41,9 @@ def run_suite():
         ("test_sprint3_request_id_middleware", test_integration.test_sprint3_request_id_middleware),
         ("test_sprint3_centralized_order_event_audit", test_integration.test_sprint3_centralized_order_event_audit),
         ("test_sprint3_auth_status_endpoint", test_integration.test_sprint3_auth_status_endpoint),
+        ("test_sprint4_coupons_schema_and_cod_filter", test_integration.test_sprint4_coupons_schema_and_cod_filter),
+        ("test_sprint4_checkout_recovery_and_failing_closed", test_integration.test_sprint4_checkout_recovery_and_failing_closed),
+        ("test_sprint4_availability_and_distance_filtering", test_integration.test_sprint4_availability_and_distance_filtering),
     ]
 
     passed = 0
