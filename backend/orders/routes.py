@@ -310,3 +310,78 @@ async def place_order(
         # Failsafe: transition session to FAILED in case of client or network error
         transition_session_status(db, session_record, OrderStatus.FAILED)
         raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
+
+
+from pydantic import BaseModel, Field
+import uuid
+from backend.db.models import OrderFeedback, UserProfile
+
+class OrderFeedbackSchema(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    filling: Optional[str] = None
+    spicy: Optional[str] = None
+    again: bool = True
+
+@router.post("/session/{session_id}/feedback")
+async def submit_order_feedback(
+    session_id: str,
+    feedback_data: OrderFeedbackSchema,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Submits user feedback for a completed order session, updating user memory constraints.
+    """
+    # 1. Fetch OrderSession and verify ownership
+    session_record = db.query(OrderSession).filter(
+        OrderSession.id == session_id,
+        OrderSession.user_id == user_id
+    ).first()
+    if not session_record:
+        raise HTTPException(status_code=404, detail="Order session not found.")
+        
+    # 2. Verify status is ORDER_PLACED
+    if session_record.status != OrderStatus.ORDER_PLACED.value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Feedback can only be submitted for completed orders. Current status: {session_record.status}"
+        )
+        
+    # 3. Check if feedback already exists for this session
+    feedback_record = db.query(OrderFeedback).filter(
+        OrderFeedback.order_session_id == session_id
+    ).first()
+    
+    if feedback_record:
+        feedback_record.rating = feedback_data.rating
+        feedback_record.filling = feedback_data.filling
+        feedback_record.spicy = feedback_data.spicy
+        feedback_record.again = feedback_data.again
+        message = "Feedback updated successfully."
+    else:
+        feedback_record = OrderFeedback(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            order_session_id=session_id,
+            rating=feedback_data.rating,
+            filling=feedback_data.filling,
+            spicy=feedback_data.spicy,
+            again=feedback_data.again
+        )
+        db.add(feedback_record)
+        message = "Feedback submitted successfully."
+        
+    # 4. Feed back spicy/filling preference into profile
+    profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    if profile:
+        if feedback_data.spicy == "too_spicy":
+            profile.spice_tolerance = "low"
+            dislikes_list = list(profile.dislikes or [])
+            if "spicy" not in dislikes_list:
+                dislikes_list.append("spicy")
+                profile.dislikes = dislikes_list
+        elif feedback_data.spicy == "not_spicy":
+            profile.spice_tolerance = "high"
+            
+    db.commit()
+    return {"success": True, "message": message}

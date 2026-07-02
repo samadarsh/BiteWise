@@ -20,6 +20,16 @@ def parse_json_field(val) -> list:
             return [val]
     return list(val)
 
+def parse_dict_field(val) -> dict:
+    if not val:
+        return {}
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except json.JSONDecodeError:
+            return {}
+    return dict(val)
+
 @router.get("/profile", response_model=UserProfileSchema)
 async def get_user_profile(
     user_id: str = Depends(get_current_user_id),
@@ -39,7 +49,15 @@ async def get_user_profile(
             allergies=[],
             dislikes=[],
             favorite_cuisines=["indian"],
-            fitness_goal="maintenance"
+            fitness_goal="maintenance",
+            age=None,
+            gender=None,
+            height_cm=None,
+            weight_kg=None,
+            activity_level="moderate",
+            meal_budget_default=300,
+            preferred_meal_times={},
+            spice_tolerance="medium"
         )
         db.add(profile)
         db.commit()
@@ -52,7 +70,15 @@ async def get_user_profile(
         allergies=parse_json_field(profile.allergies),
         dislikes=parse_json_field(profile.dislikes),
         favorite_cuisines=parse_json_field(profile.favorite_cuisines),
-        fitness_goal=profile.fitness_goal
+        fitness_goal=profile.fitness_goal,
+        age=profile.age,
+        gender=profile.gender,
+        height_cm=profile.height_cm,
+        weight_kg=profile.weight_kg,
+        activity_level=profile.activity_level or "moderate",
+        meal_budget_default=profile.meal_budget_default or 300,
+        preferred_meal_times=parse_dict_field(profile.preferred_meal_times),
+        spice_tolerance=profile.spice_tolerance or "medium"
     )
 
 @router.put("/profile", response_model=Dict[str, str])
@@ -76,6 +102,16 @@ async def update_user_profile(
     profile.dislikes = profile_data.dislikes
     profile.favorite_cuisines = profile_data.favorite_cuisines
     profile.fitness_goal = profile_data.fitness_goal
+    
+    # Biometric updates
+    profile.age = profile_data.age
+    profile.gender = profile_data.gender
+    profile.height_cm = profile_data.height_cm
+    profile.weight_kg = profile_data.weight_kg
+    profile.activity_level = profile_data.activity_level
+    profile.meal_budget_default = profile_data.meal_budget_default
+    profile.preferred_meal_times = profile_data.preferred_meal_times
+    profile.spice_tolerance = profile_data.spice_tolerance
     
     db.commit()
     return {"message": "Profile updated successfully."}

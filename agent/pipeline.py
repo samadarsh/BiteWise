@@ -12,7 +12,15 @@ class NutriOrderPipeline:
         self.personalization = personalization_engine
         self.ranker = RankingEngine()
 
-    def run_pipeline(self, raw_input: str, session_constraints: Dict[str, Any], address_id: Optional[str] = None, skip_cart_update: bool = False) -> Dict[str, Any]:
+    def run_pipeline(
+        self,
+        raw_input: str,
+        session_constraints: Dict[str, Any],
+        address_id: Optional[str] = None,
+        skip_cart_update: bool = False,
+        custom_priorities: Optional[Dict[str, float]] = None,
+        relaxation_patch: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Orchestrate the end-to-end recommendation pipeline."""
         start_time = time.time()
         metrics_tracker.reset()  # Reset for UI monitoring purposes if needed
@@ -21,6 +29,15 @@ class NutriOrderPipeline:
         from mcp.mcp_client import SwiggyAuthError, SwiggyMCPError
 
         try:
+            # Apply relaxation patch overrides if present
+            if relaxation_patch:
+                if "calorie_target" in relaxation_patch:
+                    session_constraints["calorie_target"] = relaxation_patch["calorie_target"]
+                if "protein_target" in relaxation_patch:
+                    session_constraints["protein_target"] = relaxation_patch["protein_target"]
+                if "budget_max_rs" in relaxation_patch:
+                    session_constraints["budget_max_rs"] = relaxation_patch["budget_max_rs"]
+
             # Resolve address ID early (use passed value if present)
             address_id = address_id or session_constraints.get("addressId") or self._resolve_address_id()
 
@@ -38,7 +55,7 @@ class NutriOrderPipeline:
             valid_candidates = self._validate_constraints(candidates, planned_profile)
 
             # Stage 5: Ranking Engine (weighted multi-factor scores + explanations)
-            ranked = self.ranker.rank_meals(valid_candidates, planned_profile)
+            ranked = self.ranker.rank_meals(valid_candidates, planned_profile, custom_priorities=custom_priorities)
 
             pipeline_duration = time.time() - start_time
             metrics_tracker.record_latency("recommendation_pipeline", pipeline_duration)
@@ -155,14 +172,15 @@ class NutriOrderPipeline:
         history_summary = self.personalization.get_personalization_summary()
         profile["history_summary"] = history_summary
         
-        # Determine target calories based on goal
-        goal = profile.get("fitness_goal", "muscle_gain")
-        if goal == "muscle_gain":
-            profile["target_calories"] = 750
-        elif goal == "fat_loss":
-            profile["target_calories"] = 500
-        else:
-            profile["target_calories"] = 650
+        # Calculate targets using biometric targets engine
+        from agent.nutrition_targets import NutritionTargetEngine
+        targets = NutritionTargetEngine.calculate_targets(profile)
+        
+        profile["target_calories"] = targets["meal_calories"]
+        profile["target_protein"] = targets["meal_protein"]
+        profile["daily_calories"] = targets["daily_calories"]
+        profile["daily_protein"] = targets["daily_protein"]
+        profile["goal_reason"] = targets["goal_reason"]
 
         # Propagate other limit constraints
         profile["max_delivery_time_min"] = intent.get("delivery_time", 45)
@@ -208,15 +226,33 @@ class NutriOrderPipeline:
                         "get_restaurant_menu", 
                         {"addressId": address_id, "restaurantId": rest["id"]}
                     )
+                    from agent.nutrition_estimator import NutritionEstimator
                     for item in menu:
-                        # Append restaurant details
+                        item_name = item["name"]
+                        desc = item.get("description") or item.get("item_description") or ""
+                        est = NutritionEstimator.estimate_nutrition(item_name, desc)
+                        
+                        verified_protein = item.get("protein_g")
+                        verified_cal = item.get("calories")
+                        is_estimated = not (verified_protein and verified_cal)
+                        
+                        protein = verified_protein if verified_protein else est["estimated_protein_g"]
+                        calories = verified_cal if verified_cal else est["estimated_calories"]
+                        fat = item.get("fat_g") or est["estimated_fat_g"]
+                        carbs = item.get("carbs_g") or est["estimated_carbs_g"]
+                        confidence = 1.0 if not is_estimated else est["confidence"]
+
                         candidates.append({
                             "restaurant_id": rest["id"],
                             "restaurant_name": rest["name"],
                             "item_id": item["id"],
-                            "item_name": item["name"],
-                            "protein_g": item.get("protein_g", 25),
-                            "calories": item.get("calories", 500),
+                            "item_name": item_name,
+                            "protein_g": protein,
+                            "calories": calories,
+                            "fat_g": fat,
+                            "carbs_g": carbs,
+                            "confidence": confidence,
+                            "is_estimated": is_estimated,
                             "price": item["price"],
                             "delivery_time_min": rest.get("delivery_time_min", 30),
                             "dietary_preference": item.get("dietary_preference", "any"),
@@ -316,19 +352,40 @@ class NutriOrderPipeline:
 
     def _convert_mcp_items(self, mcp_items: Any) -> List[Dict[str, Any]]:
         """Normalize items returned by mcp search_menu tool into candidate dicts."""
+        from agent.nutrition_estimator import NutritionEstimator
         normalized = []
         if not isinstance(mcp_items, list):
             return normalized
 
         for item in mcp_items:
-            # Attach mock ratings and popularity if missing
+            item_name = item.get("name") or item.get("item_name") or "Recommended Item"
+            desc = item.get("description") or item.get("item_description") or ""
+            
+            # Estimate macros
+            est = NutritionEstimator.estimate_nutrition(item_name, desc)
+            
+            verified_protein = item.get("protein_g")
+            verified_cal = item.get("calories")
+            
+            is_estimated = not (verified_protein and verified_cal)
+            
+            protein = verified_protein if verified_protein else est["estimated_protein_g"]
+            calories = verified_cal if verified_cal else est["estimated_calories"]
+            fat = item.get("fat_g") or est["estimated_fat_g"]
+            carbs = item.get("carbs_g") or est["estimated_carbs_g"]
+            confidence = 1.0 if not is_estimated else est["confidence"]
+            
             normalized.append({
                 "restaurant_id": item.get("restaurant_id", "rest_1"),
                 "restaurant_name": item.get("restaurant_name", "Protein Bowl Co"),
                 "item_id": item.get("id") or item.get("item_id"),
-                "item_name": item.get("name") or item.get("item_name"),
-                "protein_g": item.get("protein_g", 25),
-                "calories": item.get("calories") or (item.get("protein_g", 25) * 8 + 200),
+                "item_name": item_name,
+                "protein_g": protein,
+                "calories": calories,
+                "fat_g": fat,
+                "carbs_g": carbs,
+                "confidence": confidence,
+                "is_estimated": is_estimated,
                 "price": item.get("price", 199),
                 "delivery_time_min": item.get("delivery_time_min", 30),
                 "dietary_preference": item.get("dietary_preference", "any"),

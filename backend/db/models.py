@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Float, DateTime, LargeBinary, ForeignKey, JSON, func
+from sqlalchemy import Column, Integer, String, Float, DateTime, LargeBinary, ForeignKey, JSON, func, Boolean
 from sqlalchemy.orm import relationship
 from backend.db.session import Base
 
@@ -40,6 +40,16 @@ class UserProfile(Base):
     dislikes = Column(JSON, default=list, nullable=False)
     favorite_cuisines = Column(JSON, default=list, nullable=False)
     fitness_goal = Column(String, default="maintenance", nullable=False)
+    
+    # Biometric extensions
+    age = Column(Integer, nullable=True)
+    gender = Column(String, nullable=True)
+    height_cm = Column(Float, nullable=True)
+    weight_kg = Column(Float, nullable=True)
+    activity_level = Column(String, default="moderate", nullable=False)
+    meal_budget_default = Column(Integer, default=300, nullable=False)
+    preferred_meal_times = Column(JSON, default=dict, nullable=False)
+    spice_tolerance = Column(String, default="medium", nullable=False)
 
     user = relationship("User", back_populates="profile")
 
@@ -86,3 +96,16 @@ class OrderEvent(Base):
     created_at = Column(DateTime, default=func.now(), nullable=False)
 
     order_session = relationship("OrderSession", back_populates="events")
+
+
+class OrderFeedback(Base):
+    __tablename__ = "order_feedbacks"
+
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    order_session_id = Column(String, ForeignKey("order_sessions.id"), unique=True, nullable=False)
+    rating = Column(Integer, nullable=False)
+    filling = Column(String, nullable=True)
+    spicy = Column(String, nullable=True)
+    again = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=func.now(), nullable=False)

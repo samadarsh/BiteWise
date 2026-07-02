@@ -53,6 +53,16 @@ export interface UserProfile {
   dislikes: string[];
   favorite_cuisines: string[];
   fitness_goal: string;
+  age?: number | null;
+  gender?: string | null;
+  height_cm?: number | null;
+  weight_kg?: number | null;
+  activity_level: string;
+  meal_budget_default: number;
+  preferred_meal_times: Record<string, string>;
+  spice_tolerance: string;
+  daily_calories?: number;
+  daily_protein?: number;
 }
 
 export interface Address {
@@ -76,6 +86,10 @@ export interface RecommendationMeal {
   calories: string;
   score: number;
   reasons: string[];
+  why_this_meal?: string[];
+  tradeoffs?: string[];
+  confidence?: number;
+  is_estimated?: boolean;
   restaurant_id?: string;
   item_id?: string;
   restaurant_name?: string;
@@ -111,7 +125,16 @@ export interface RecommendationResponse {
       calories?: number;
       match_score?: number;
       explanations?: string[];
+      why_this_meal?: string[];
+      tradeoffs?: string[];
+      confidence?: number;
+      is_estimated?: boolean;
       [key: string]: unknown;
+    }>;
+    relaxation_options?: Array<{
+      label: string;
+      patch: Record<string, unknown>;
+      impact: string;
     }>;
   };
 }
@@ -209,10 +232,23 @@ export const api = {
   /**
    * Retrieves recommended meals for the session.
    */
-  async searchRecommendations(sessionId: string, query: string): Promise<RecommendationResponse> {
+  async searchRecommendations(
+    sessionId: string,
+    query: string,
+    priorities?: Record<string, number>,
+    relaxationPatch?: Record<string, unknown>
+  ): Promise<RecommendationResponse> {
     return apiFetch<RecommendationResponse>(
-      `/recommendations/search?session_id=${encodeURIComponent(sessionId)}&query=${encodeURIComponent(query)}`,
-      { method: "POST" }
+      `/recommendations/search`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          session_id: sessionId,
+          query: query,
+          priorities: priorities,
+          relaxation_patch: relaxationPatch
+        })
+      }
     );
   },
 
@@ -260,6 +296,22 @@ export const api = {
     return apiFetch<PlaceOrderResponse>(
       `/orders/session/${sessionId}/place?user_confirmed=${confirmed ? "true" : "false"}`,
       { method: "POST" }
+    );
+  },
+
+  /**
+   * Submits user feedback for the order session.
+   */
+  async submitFeedback(
+    sessionId: string,
+    feedback: { rating: number; filling?: string; spicy?: string; again: boolean }
+  ): Promise<unknown> {
+    return apiFetch<unknown>(
+      `/orders/session/${sessionId}/feedback`,
+      {
+        method: "POST",
+        body: JSON.stringify(feedback)
+      }
     );
   },
 };

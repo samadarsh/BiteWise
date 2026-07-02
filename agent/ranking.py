@@ -196,8 +196,23 @@ class RankingEngine:
             HistoricalPreferenceFactor("Ordering History", 0.03)
         ]
 
-    def rank_meals(self, meals: List[Dict[str, Any]], profile: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def rank_meals(self, meals: List[Dict[str, Any]], profile: Dict[str, Any], custom_priorities: Optional[Dict[str, float]] = None) -> List[Dict[str, Any]]:
         ranked_meals = []
+        priorities = custom_priorities or profile.get("priorities") or {}
+        
+        # Factor multipliers mapping
+        factor_multipliers = {
+            "Protein Density": priorities.get("protein_priority", 1.0),
+            "Calories": priorities.get("calorie_priority", 1.0),
+            "Fitness Goal Align": priorities.get("protein_priority", 1.0),
+            "Dietary Compatibility": 1.0,
+            "Cuisine Preference": 1.0,
+            "Budget Constraints": priorities.get("budget_priority", 1.0),
+            "Delivery ETA": priorities.get("speed_priority", 1.0),
+            "Restaurant Rating": priorities.get("taste_priority", 1.0),
+            "Popularity": priorities.get("taste_priority", 1.0),
+            "Ordering History": 1.0
+        }
         
         for meal in meals:
             total_score = 0.0
@@ -234,8 +249,13 @@ class RankingEngine:
             
             for factor in self.factors:
                 score_val, explanation = factor.score(meal, profile)
-                total_score += score_val * factor.weight
-                total_weight += factor.weight
+                
+                # Apply dynamic priority multiplier
+                multiplier = factor_multipliers.get(factor.name, 1.0)
+                effective_weight = factor.weight * multiplier
+                
+                total_score += score_val * effective_weight
+                total_weight += effective_weight
                 
                 # Capture highly scoring explanations (score >= 0.7) or important ones like budget/eta
                 if score_val >= 0.7 and len(explanation_bullets) < 5:
@@ -245,9 +265,65 @@ class RankingEngine:
             
             final_score = (total_score / total_weight) * 100 if total_weight > 0 else 0.0
             
+            # Apply clean eating penalty for low confidence estimation if priority is enabled
+            clean_eating_priority = priorities.get("clean_eating_priority", 1.0)
+            confidence = meal.get("confidence", 1.0)
+            is_estimated = meal.get("is_estimated", True)
+            
+            if is_estimated and clean_eating_priority > 1.0:
+                # Deduct up to 15 points based on estimation risk and clean eating priority
+                penalty = (1.0 - confidence) * 15.0 * (clean_eating_priority - 1.0)
+                final_score = max(0.0, final_score - penalty)
+            
+            # Generate structured explainable recommendations
+            why_this_meal = []
+            tradeoffs = []
+            
+            protein = meal.get("protein_g", 0)
+            calories = meal.get("calories", 0)
+            price = meal.get("price", 0)
+            eta = meal.get("delivery_time_min", 0)
+            
+            target_protein = profile.get("protein_target", 35)
+            target_calories = profile.get("calorie_target", 650)
+            budget_max = profile.get("meal_budget_default", 300)
+            
+            # Explanations
+            if protein >= target_protein:
+                why_this_meal.append(f"Provides {protein}g protein, meeting your {target_protein}g target.")
+            elif protein >= target_protein * 0.8:
+                why_this_meal.append(f"Provides {protein}g protein, close to your {target_protein}g target.")
+                
+            if abs(calories - target_calories) <= 80:
+                why_this_meal.append(f"Estimated {calories} kcal, aligns well with your {target_calories} kcal target.")
+            elif calories < target_calories:
+                why_this_meal.append(f"Estimated {calories} kcal, fits under your {target_calories} kcal target.")
+                
+            if price <= budget_max:
+                why_this_meal.append(f"Priced at Rs {price}, fits within your default budget of Rs {budget_max}.")
+                
+            # Tradeoffs
+            if is_estimated:
+                tradeoffs.append("Nutrition is estimated based on ingredient signals, not verified.")
+                if confidence < 0.7:
+                    tradeoffs.append("Low estimation confidence due to limited item details.")
+            else:
+                why_this_meal.append("Verified nutrition information provided by restaurant.")
+                
+            if price > budget_max:
+                tradeoffs.append(f"Priced at Rs {price}, exceeds budget of Rs {budget_max} by Rs {price - budget_max}.")
+            if calories > target_calories + 100:
+                tradeoffs.append(f"At {calories} kcal, this exceeds your calorie target by {calories - target_calories} kcal.")
+            if eta > 40:
+                tradeoffs.append(f"Longer delivery time (~{eta} mins).")
+            
             meal_with_score = dict(meal)
             meal_with_score["score"] = final_score
             meal_with_score["explanations"] = explanation_bullets
+            meal_with_score["why_this_meal"] = why_this_meal
+            meal_with_score["tradeoffs"] = tradeoffs
+            meal_with_score["confidence"] = confidence
+            meal_with_score["is_estimated"] = is_estimated
             ranked_meals.append(meal_with_score)
             
         ranked_meals.sort(key=lambda m: m["score"], reverse=True)

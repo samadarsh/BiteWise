@@ -21,7 +21,29 @@ app = FastAPI(
 # Startup DB initialization hook
 @app.on_event("startup")
 def init_db():
+    # 1. Create any missing tables first (e.g. order_feedbacks)
     Base.metadata.create_all(bind=engine)
+    
+    # 2. Run SQLite-specific idempotent migrations for UserProfile columns
+    if "sqlite" in engine.dialect.name:
+        from sqlalchemy import inspect, text
+        inspector = inspect(engine)
+        if inspector.has_table("user_profiles"):
+            columns = [col["name"] for col in inspector.get_columns("user_profiles")]
+            new_columns = [
+                ("age", "INTEGER"),
+                ("gender", "VARCHAR"),
+                ("height_cm", "FLOAT"),
+                ("weight_kg", "FLOAT"),
+                ("activity_level", "VARCHAR DEFAULT 'moderate'"),
+                ("meal_budget_default", "INTEGER DEFAULT 300"),
+                ("preferred_meal_times", "JSON DEFAULT '{}'"),
+                ("spice_tolerance", "VARCHAR DEFAULT 'medium'")
+            ]
+            with engine.begin() as conn:
+                for col_name, col_type in new_columns:
+                    if col_name not in columns:
+                        conn.execute(text(f"ALTER TABLE user_profiles ADD COLUMN {col_name} {col_type}"))
 
 # CORS configuration allowing explicit localhost frontend origin with credentials enabled
 app.add_middleware(

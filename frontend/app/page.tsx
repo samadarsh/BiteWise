@@ -2,6 +2,11 @@
 
 import React, { useState, useEffect } from "react";
 import { api, UserProfile, Address, RecommendationMeal, CartInfo } from "../lib/api";
+import OnboardingPanel from "../components/OnboardingPanel";
+import PriorityControls, { PriorityWeights } from "../components/PriorityControls";
+import RecommendationCard from "../components/RecommendationCard";
+import RelaxationOptions, { RelaxationOption } from "../components/RelaxationOptions";
+import FeedbackModal from "../components/FeedbackModal";
 
 export default function NutriOrderDashboard() {
   // Authentication & Initialization
@@ -39,7 +44,23 @@ export default function NutriOrderDashboard() {
   const [trackingStep, setTrackingStep] = useState<number>(0);
   const [trackingIntervalId, setTrackingIntervalId] = useState<ReturnType<typeof setInterval> | null>(null);
 
+  // Sprint 2 Personalized Intelligence States
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [editingProfile, setEditingProfile] = useState<boolean>(false);
+  const [relaxationOptions, setRelaxationOptions] = useState<RelaxationOption[]>([]);
+  const [showFeedbackModal, setShowFeedbackModal] = useState<boolean>(false);
+  const [feedbackLoading, setFeedbackLoading] = useState<boolean>(false);
+  const [priorityWeights, setPriorityWeights] = useState<PriorityWeights>({
+    protein_priority: 1.0,
+    calorie_priority: 1.0,
+    budget_priority: 1.0,
+    speed_priority: 1.0,
+    taste_priority: 1.0,
+    clean_eating_priority: 1.0,
+  });
+
   const loadProfileFields = (prof: UserProfile) => {
+    setProfile(prof);
     setFitnessGoal(prof.fitness_goal);
     setProteinTarget(prof.protein_target);
     setCalorieTarget(prof.calorie_target);
@@ -120,7 +141,15 @@ export default function NutriOrderDashboard() {
         diet_preference: dietPreference,
         allergies: allergyList,
         dislikes: dislikes,
-        favorite_cuisines: favCuisines
+        favorite_cuisines: favCuisines,
+        age: profile?.age || null,
+        gender: profile?.gender || null,
+        height_cm: profile?.height_cm || null,
+        weight_kg: profile?.weight_kg || null,
+        activity_level: profile?.activity_level || "moderate",
+        meal_budget_default: profile?.meal_budget_default || 300,
+        preferred_meal_times: profile?.preferred_meal_times || {},
+        spice_tolerance: profile?.spice_tolerance || "medium"
       });
     } catch (err) {
       console.error("Failed to save profile modifications", err);
@@ -156,7 +185,7 @@ export default function NutriOrderDashboard() {
     }
     setSearchLoading(true);
     try {
-      const res = await api.searchRecommendations(activeSessionId, searchQuery);
+      const res = await api.searchRecommendations(activeSessionId, searchQuery, priorityWeights);
       setSessionStatus(res.status);
       
       // Map candidates returned from pipeline
@@ -171,11 +200,16 @@ export default function NutriOrderDashboard() {
         calories: c.calories ? `${c.calories} kcal` : "N/A",
         score: c.match_score || 80,
         reasons: c.explanations || ["Fits nutritional criteria."],
+        why_this_meal: c.why_this_meal || [],
+        tradeoffs: c.tradeoffs || [],
+        confidence: c.confidence || 1.0,
+        is_estimated: c.is_estimated !== false,
         restaurant_id: c.restaurant_id,
         item_id: c.item_id
       }));
       
       setRecommendations(mapped);
+      setRelaxationOptions(res.results.relaxation_options || []);
       setSelectedMeal(null);
       setCartPreview(null);
     } catch (err) {
@@ -240,7 +274,10 @@ export default function NutriOrderDashboard() {
       const interval = setInterval(() => {
         step += 1;
         setTrackingStep(step);
-        if (step >= 3) clearInterval(interval);
+        if (step >= 3) {
+          clearInterval(interval);
+          setShowFeedbackModal(true);
+        }
       }, 4000);
       setTrackingIntervalId(interval);
     } catch (err) {
@@ -248,6 +285,84 @@ export default function NutriOrderDashboard() {
       alert(`Checkout failed: ${msg}`);
     } finally {
       setOrderPlacing(false);
+    }
+  };
+
+  // Feedback Submit handler
+  const handleFeedbackSubmit = async (feedback: { rating: number; filling: string; spicy: string; again: boolean }) => {
+    setFeedbackLoading(true);
+    try {
+      await api.submitFeedback(activeSessionId, feedback);
+      // Reload profile to adjust weights
+      const prof = await api.getProfile();
+      loadProfileFields(prof);
+      setShowFeedbackModal(false);
+      alert("Feedback saved! NutriOrder AI has updated your personalization rules based on your inputs.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Failed to save feedback: ${msg}`);
+    } finally {
+      setFeedbackLoading(false);
+    }
+  };
+
+  // Onboarding Save handler
+  const handleOnboardingSave = async (updatedProfile: UserProfile) => {
+    setAuthLoading(true);
+    try {
+      await api.updateProfile(updatedProfile);
+      const prof = await api.getProfile();
+      loadProfileFields(prof);
+      setEditingProfile(false);
+      alert("Biometric targets calculated and synchronized successfully.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Failed to update biometric profile: ${msg}`);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // Smart Relaxation Apply handler
+  const handleRelaxationApply = async (patch: Record<string, any>) => {
+    setSearchLoading(true);
+    try {
+      const res = await api.searchRecommendations(
+        activeSessionId,
+        searchQuery,
+        priorityWeights,
+        patch
+      );
+      setSessionStatus(res.status);
+      
+      const rawCandidates = res.results.recommendations || [];
+      const mapped = rawCandidates.map((c) => ({
+        id: c.item_id,
+        name: c.name || c.item_name || "Recommended meal",
+        restaurant: c.restaurant_name || "Unknown Restaurant",
+        price: c.price,
+        eta: `${c.delivery_time_min || 30} mins`,
+        protein: `${c.protein_g || 0}g`,
+        calories: c.calories ? `${c.calories} kcal` : "N/A",
+        score: c.match_score || 80,
+        reasons: c.explanations || ["Fits nutritional criteria."],
+        why_this_meal: c.why_this_meal || [],
+        tradeoffs: c.tradeoffs || [],
+        confidence: c.confidence || 1.0,
+        is_estimated: c.is_estimated !== false,
+        restaurant_id: c.restaurant_id,
+        item_id: c.item_id
+      }));
+      
+      setRecommendations(mapped);
+      setRelaxationOptions(res.results.relaxation_options || []);
+      setSelectedMeal(null);
+      setCartPreview(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Constraint relaxation search failed: ${msg}`);
+    } finally {
+      setSearchLoading(false);
     }
   };
 
@@ -310,12 +425,17 @@ export default function NutriOrderDashboard() {
               Demo Staging
             </span>
           </div>
-
           <div className="flex items-center gap-4">
             {isAuthenticated ? (
               <div className="flex items-center gap-3">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-xs text-slate-400 font-mono">Demo Session Active</span>
+                <button 
+                  onClick={() => setEditingProfile(true)} 
+                  className="text-xs text-emerald-400 hover:text-emerald-300 font-medium px-2 py-1 rounded hover:bg-emerald-500/10 transition"
+                >
+                  Edit Profile
+                </button>
                 <button 
                   onClick={handleLogout} 
                   className="text-xs text-rose-400 hover:text-rose-300 font-medium px-2 py-1 rounded hover:bg-rose-500/10 transition"
@@ -369,6 +489,27 @@ export default function NutriOrderDashboard() {
             </button>
           </div>
         </main>
+      ) : (!profile || profile.weight_kg === null || profile.height_cm === null || profile.age === null || editingProfile) ? (
+        // Onboarding panel if profile details are missing
+        <main className="flex-1 max-w-xl w-full mx-auto px-4 py-12 flex items-center justify-center">
+          <OnboardingPanel
+            profile={profile || {
+              protein_target: proteinTarget,
+              calorie_target: calorieTarget,
+              diet_preference: dietPreference,
+              allergies,
+              dislikes,
+              favorite_cuisines: favCuisines,
+              fitness_goal: fitnessGoal,
+              activity_level: "moderate",
+              meal_budget_default: 300,
+              preferred_meal_times: {},
+              spice_tolerance: "medium"
+            }}
+            onSave={handleOnboardingSave}
+            loading={authLoading}
+          />
+        </main>
       ) : placedOrderId ? (
         // Tracking View
         <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8">
@@ -407,7 +548,7 @@ export default function NutriOrderDashboard() {
                     <div className={`h-8 w-8 rounded-full flex items-center justify-center font-bold text-xs border transition duration-500 ${
                       active 
                         ? "bg-emerald-500 border-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20" 
-                        : "bg-slate-950 border-slate-800 text-slate-600"
+                        : "bg-slate-950 border-slate-880 text-slate-600"
                     }`}>
                       {idx + 1}
                     </div>
@@ -459,6 +600,9 @@ export default function NutriOrderDashboard() {
           {/* Left Columns: Address, Profile & Query */}
           <div className="lg:col-span-5 flex flex-col gap-8">
             
+            {/* Dynamic Priorities Control */}
+            <PriorityControls weights={priorityWeights} onChange={setPriorityWeights} />
+            
             {/* Step 1: Address Selection */}
             <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-4">
               <div className="flex justify-between items-center">
@@ -501,11 +645,32 @@ export default function NutriOrderDashboard() {
 
             {/* Step 2: Goal & Preferences Setup */}
             <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-5">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">2. Nutritional Profile</h3>
+              <div className="flex justify-between items-center">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">2. Nutritional Profile</h3>
+                <button 
+                  onClick={() => setEditingProfile(true)} 
+                  className="text-[10px] text-emerald-400 hover:underline"
+                >
+                  Edit Biometrics ⚙️
+                </button>
+              </div>
+
+              <div className="bg-slate-950/80 rounded-xl p-4 border border-slate-900 text-xs text-slate-400 flex flex-col gap-2">
+                <p className="font-bold text-slate-300">Biometric Targets Engine:</p>
+                <div className="grid grid-cols-2 gap-2 text-[11px] mt-1">
+                  <p>Daily Calories: <strong className="text-blue-400">{profile?.daily_calories || calorieTarget * 3} kcal</strong></p>
+                  <p>Meal Calories: <strong className="text-blue-400">{calorieTarget} kcal</strong></p>
+                  <p>Daily Protein: <strong className="text-emerald-400">{profile?.daily_protein || proteinTarget * 3}g</strong></p>
+                  <p>Meal Protein: <strong className="text-emerald-400">{proteinTarget}g</strong></p>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 italic">
+                  Reasoning: {profile?.fitness_goal ? (profile.fitness_goal === "fat_loss" ? "High protein calorie deficit" : profile.fitness_goal === "muscle_gain" ? "Hypertrophic calorie surplus" : "Iso-caloric maintenance") : "Default weights active."}
+                </p>
+              </div>
               
               {/* Fitness Goal Buttons */}
               <div>
-                <label className="block text-xs text-slate-400 font-semibold mb-2">Fitness Goal</label>
+                <label className="block text-xs text-slate-400 font-semibold mb-2">Goal Override</label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { id: "muscle_gain", label: "💪 Bulking" },
@@ -551,8 +716,8 @@ export default function NutriOrderDashboard() {
               <div className="flex flex-col gap-4">
                 <div>
                   <div className="flex justify-between items-center mb-1.5">
-                    <label className="text-xs text-slate-400">Min Protein Target</label>
-                    <span className="text-xs font-bold text-emerald-400">{proteinTarget}g</span>
+                     <label className="text-xs text-slate-400">Min Protein Target</label>
+                     <span className="text-xs font-bold text-emerald-400">{proteinTarget}g</span>
                   </div>
                   <input 
                     type="range" 
@@ -670,6 +835,9 @@ export default function NutriOrderDashboard() {
             <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex-1 flex flex-col gap-4">
               <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">4. AI Meal Recommendations</h3>
               
+              {/* Smart Constraint Relaxation Payload Options */}
+              <RelaxationOptions options={relaxationOptions} onApplyPatch={handleRelaxationApply} loading={searchLoading} />
+              
               {recommendations.length === 0 ? (
                 <div className="flex-1 border border-dashed border-slate-800/80 rounded-xl flex flex-col items-center justify-center p-8 text-center text-slate-500 gap-2">
                   <span className="text-3xl">🍲</span>
@@ -677,55 +845,15 @@ export default function NutriOrderDashboard() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-4">
-                  {recommendations.map((meal) => {
-                    const isSelected = selectedMeal?.id === meal.id;
-                    return (
-                      <div 
-                        key={meal.id}
-                        onClick={() => handleMealSelect(meal)}
-                        className={`cursor-pointer border rounded-xl p-4 flex flex-col gap-3 transition ${
-                          isSelected 
-                            ? "bg-slate-950/80 border-emerald-500 shadow-md shadow-emerald-500/5" 
-                            : "bg-slate-950/20 border-slate-800/80 hover:border-slate-700"
-                        }`}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="font-bold text-slate-200 text-sm">{meal.name}</h4>
-                            <p className="text-xs text-slate-500 mt-0.5">{meal.restaurant} • 🛵 {meal.eta}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-bold text-emerald-400">Rs {meal.price}</p>
-                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-semibold px-2 py-0.5 rounded border border-emerald-500/20 mt-1 inline-block">
-                              {meal.score}% match
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Macro details badges */}
-                        <div className="flex gap-4 border-t border-b border-slate-900/60 py-2 text-xs">
-                          <div className="flex gap-1">
-                            <span className="text-slate-500">Protein:</span>
-                            <span className="font-bold text-emerald-400">{meal.protein}</span>
-                          </div>
-                          <div className="flex gap-1">
-                            <span className="text-slate-500">Calories:</span>
-                            <span className="font-bold text-blue-400">{meal.calories}</span>
-                          </div>
-                        </div>
-
-                        {/* Reasoning list */}
-                        <div className="text-xs text-slate-400 flex flex-col gap-1 list-none">
-                          {meal.reasons.map((reason: string, idx: number) => (
-                            <div key={idx} className="flex items-start gap-1.5">
-                              <span className="text-emerald-500 mt-0.5">✓</span>
-                              <span>{reason}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {recommendations.map((meal) => (
+                    <RecommendationCard
+                      key={meal.id}
+                      meal={meal}
+                      onSelect={handleMealSelect}
+                      selected={selectedMeal?.id === meal.id}
+                      loading={cartLoading}
+                    />
+                  ))}
                 </div>
               )}
             </section>
@@ -816,6 +944,15 @@ export default function NutriOrderDashboard() {
             </section>
           </div>
         </main>
+      )}
+
+      {/* Post-Order Feedback Modal */}
+      {showFeedbackModal && (
+        <FeedbackModal
+          onSubmit={handleFeedbackSubmit}
+          onClose={() => setShowFeedbackModal(false)}
+          loading={feedbackLoading}
+        />
       )}
     </div>
   );
