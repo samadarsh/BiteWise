@@ -41,6 +41,7 @@ async def select_address(
 ) -> Dict[str, Any]:
     """
     Binds the user-selected addressId to the current order session.
+    Persists matched address metadata dynamically to delivery_addresses table.
     """
     session_record = db.query(OrderSession).filter(
         OrderSession.id == session_id,
@@ -50,7 +51,46 @@ async def select_address(
         raise HTTPException(status_code=404, detail="Order session not found.")
 
     session_record.address_id = address_id
+
+    # Persist address metadata to delivery_addresses table
+    try:
+        from backend.db.models import DeliveryAddress
+        from backend.mcp.swiggy_client import ProductionSwiggyClient
+        import datetime
+
+        swiggy = ProductionSwiggyClient(user_id=user_id)
+        addresses = swiggy.get_addresses()
+        match = next((a for a in addresses if a.get("id") == address_id), None)
+
+        if match:
+            label = match.get("label") or "Address"
+            text = match.get("display_text") or match.get("text") or "Saved Address"
+
+            addr_rec = db.query(DeliveryAddress).filter(
+                DeliveryAddress.user_id == user_id,
+                DeliveryAddress.address_id == address_id
+            ).first()
+
+            if not addr_rec:
+                addr_rec = DeliveryAddress(
+                    user_id=user_id,
+                    address_id=address_id,
+                    label=label,
+                    display_text=text,
+                    last_selected_at=datetime.datetime.now()
+                )
+                db.add(addr_rec)
+            else:
+                addr_rec.label = label
+                addr_rec.display_text = text
+                addr_rec.last_selected_at = datetime.datetime.now()
+            db.commit()
+    except Exception as addr_err:
+        from agent.observability import log_warn
+        log_warn(f"Failed to upsert delivery address metadata in database: {str(addr_err)}")
+
     transition_session_status(db, session_record, OrderStatus.ADDRESS_SELECTED)
+    db.commit()
 
     return {
         "session_id": session_id,

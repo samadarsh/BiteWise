@@ -415,4 +415,22 @@ export const api = {
       method: "POST",
     });
   },
+
+  /**
+   * Resets all session and demo database records for the current user.
+   */
+  async resetDemo(): Promise<{ success: boolean; message: string }> {
+    return apiFetch<{ success: boolean; message: string }>("/demo/reset", {
+      method: "POST",
+    });
+  },
+
+  /**
+   * Seeds demo data (biometrics, saved addresses, history logs).
+   */
+  async seedDemo(): Promise<{ success: boolean; message: string }> {
+    return apiFetch<{ success: boolean; message: string }>("/demo/seed", {
+      method: "POST",
+    });
+  },
 };

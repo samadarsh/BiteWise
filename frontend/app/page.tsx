@@ -8,6 +8,9 @@ import RecommendationCard from "../components/RecommendationCard";
 import RelaxationOptions, { RelaxationOption } from "../components/RelaxationOptions";
 import FeedbackModal from "../components/FeedbackModal";
 import CoachDashboard, { CoachDashboardRef } from "../components/CoachDashboard";
+import DemoControlBar from "../components/DemoControlBar";
+import AlertBanner from "../components/AlertBanner";
+import LoadingSkeleton from "../components/LoadingSkeleton";
 
 export default function NutriOrderDashboard() {
   // Authentication & Initialization
@@ -28,6 +31,9 @@ export default function NutriOrderDashboard() {
   const [favCuisines, setFavCuisines] = useState<string[]>([]);
   const [dietPreference, setDietPreference] = useState<string>("any");
   const coachDashboardRef = React.useRef<CoachDashboardRef>(null);
+  const [alertMessage, setAlertMessage] = useState<string>("");
+  const [alertType, setAlertType] = useState<"success" | "error" | "warning" | "info">("info");
+  const [demoLoading, setDemoLoading] = useState<boolean>(false);
 
   // Session & Recommendation States
   const [activeSessionId, setActiveSessionId] = useState<string>("");
@@ -290,6 +296,70 @@ export default function NutriOrderDashboard() {
         alert(`Confirmation failed: ${msg}`);
         setCheckoutConfirmed(false);
       }
+    }
+  };
+
+  const handleSeedDemo = async () => {
+    setDemoLoading(true);
+    setAlertMessage("");
+    try {
+      const res = await api.seedDemo();
+      setAlertType("success");
+      setAlertMessage(res.message || "Demo data seeded successfully.");
+
+      // Reload profile, addresses, and coach history
+      const prof = await api.getProfile();
+      loadProfileFields(prof);
+      await refreshAddresses();
+
+      // Clear active recommendation state
+      setRecommendations([]);
+      setSelectedMeal(null);
+      setCartPreview(null);
+      setAppliedCoupon("");
+      setApplicableCoupons([]);
+      setCheckoutConfirmed(false);
+
+      // Refresh coach dashboard data!
+      coachDashboardRef.current?.refreshCoachData();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAlertType("error");
+      setAlertMessage(`Demo seed failed: ${msg}`);
+    } finally {
+      setDemoLoading(false);
+    }
+  };
+
+  const handleResetDemo = async () => {
+    setDemoLoading(true);
+    setAlertMessage("");
+    try {
+      const res = await api.resetDemo();
+      setAlertType("success");
+      setAlertMessage(res.message || "Demo session cleared and reset successfully.");
+
+      // Reload profile, addresses, and coach history
+      const prof = await api.getProfile();
+      loadProfileFields(prof);
+      await refreshAddresses();
+
+      // Clear active recommendation state
+      setRecommendations([]);
+      setSelectedMeal(null);
+      setCartPreview(null);
+      setAppliedCoupon("");
+      setApplicableCoupons([]);
+      setCheckoutConfirmed(false);
+
+      // Refresh coach dashboard data!
+      coachDashboardRef.current?.refreshCoachData();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAlertType("error");
+      setAlertMessage(`Demo reset failed: ${msg}`);
+    } finally {
+      setDemoLoading(false);
     }
   };
 
@@ -636,9 +706,23 @@ export default function NutriOrderDashboard() {
         </main>
       ) : (
         // Dashboard Workflow Panel
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Columns: Address, Profile & Query */}
-          <div className="lg:col-span-4 flex flex-col gap-8">
+        <div className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 flex flex-col gap-6">
+          <DemoControlBar
+            onSeed={handleSeedDemo}
+            onReset={handleResetDemo}
+            loading={demoLoading}
+          />
+          {alertMessage && (
+            <AlertBanner
+              message={alertMessage}
+              type={alertType}
+              onClose={() => setAlertMessage("")}
+            />
+          )}
+
+          <main className="grid grid-cols-1 lg:grid-cols-12 gap-8 w-full">
+            {/* Left Columns: Address, Profile & Query */}
+            <div className="lg:col-span-4 flex flex-col gap-8">
 
             {/* Dynamic Priorities Control */}
             <PriorityControls weights={priorityWeights} onChange={setPriorityWeights} />
@@ -878,7 +962,9 @@ export default function NutriOrderDashboard() {
               {/* Smart Constraint Relaxation Payload Options */}
               <RelaxationOptions options={relaxationOptions} onApplyPatch={handleRelaxationApply} loading={searchLoading} />
 
-              {recommendations.length === 0 ? (
+              {searchLoading ? (
+                <LoadingSkeleton />
+              ) : recommendations.length === 0 ? (
                 <div className="flex-1 border border-dashed border-slate-800/80 rounded-xl flex flex-col items-center justify-center p-8 text-center text-slate-500 gap-2">
                   <span className="text-3xl">🍲</span>
                   <p className="text-sm">Select address and submit query to run recommendation pipeline.</p>
@@ -1052,6 +1138,7 @@ export default function NutriOrderDashboard() {
             />
           </div>
         </main>
+      </div>
       )}
 
       {/* Post-Order Feedback Modal */}

@@ -16,6 +16,7 @@ from backend.users import routes as users_routes
 from backend.orders import routes as orders_routes
 from backend.recommendations import routes as recommendations_routes
 from backend.coach import routes as coach_routes
+from backend.demo import routes as demo_routes
 
 app = FastAPI(
     title="NutriOrder AI Production Backend",
@@ -94,6 +95,7 @@ app.include_router(users_routes.router)
 app.include_router(orders_routes.router)
 app.include_router(recommendations_routes.router)
 app.include_router(coach_routes.router)
+app.include_router(demo_routes.router)
 
 @app.get("/health")
 async def health():

@@ -5,6 +5,12 @@ class MockSwiggyFoodMCP:
     _carts_by_user: Dict[str, Dict[str, Any]] = {}
     _orders_by_user: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
+    @classmethod
+    def clear_mock_user_data(cls, user_id: str) -> None:
+        """Clears memory cart and orders for the demo user."""
+        cls._carts_by_user.pop(user_id, None)
+        cls._orders_by_user.pop(user_id, None)
+
     def __init__(self, user_id: str = "demo_user") -> None:
         self.user_id = user_id
         if user_id not in self._carts_by_user:
@@ -119,7 +125,12 @@ class MockSwiggyFoodMCP:
             {
                 "id": "addr_home",
                 "label": "Home",
-                "display_text": "Bengaluru Home Address",
+                "display_text": "123 Green Glen Layout, Outer Ring Road, Bengaluru",
+            },
+            {
+                "id": "addr_office",
+                "label": "Office",
+                "display_text": "Swiggy HQ, Devarabeesanahalli, Bengaluru",
             }
         ]
 

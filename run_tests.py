@@ -4,7 +4,7 @@ import traceback
 def run_suite():
     # Import test modules
     try:
-        from agent.tests import test_ranking, test_caching, test_fallback, test_integration, test_nutrition, test_coach
+        from agent.tests import test_ranking, test_caching, test_fallback, test_integration, test_nutrition, test_coach, test_demo
     except ImportError as e:
         print(f"Failed to import test modules: {str(e)}")
         sys.exit(1)
@@ -49,6 +49,9 @@ def run_suite():
         ("test_coach_manual_and_history_endpoints", test_coach.test_coach_manual_and_history_endpoints),
         ("test_coach_next_meal_address_rule_and_floors", test_coach.test_coach_next_meal_address_rule_and_floors),
         ("test_order_success_autologging", test_coach.test_order_success_autologging),
+        ("test_demo_endpoints_forbidden_in_production", test_demo.test_demo_endpoints_forbidden_in_production),
+        ("test_demo_reset_and_seed_data_flow", test_demo.test_demo_reset_and_seed_data_flow),
+        ("test_address_selection_persistence", test_demo.test_address_selection_persistence),
     ]
 
     passed = 0
