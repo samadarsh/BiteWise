@@ -202,19 +202,21 @@ async def seed_demo_data(
         db.add(entry1)
         db.add(entry2)
 
-        # 5. Seed Household & Family structures (Sprint 10)
+        # 5. Seed Household & Family structures (Sprint 11 — enriched pitch story)
         hh_id = f"household_{secrets.token_hex(4)}"
         hh = Household(id=hh_id, name="My Home")
         db.add(hh)
 
-        # Members
+        # Members: Primary User (any), Jane/Spouse (vegetarian + peanut allergy), Tommy/Child
         m1 = HouseholdMember(
             id=f"member_{secrets.token_hex(4)}",
             household_id=hh_id,
             user_id=user_id,
             name="Primary User",
             dietary_preference="any",
-            allergies=[]
+            allergies=[],
+            calorie_target=2200,
+            protein_target=100
         )
         m2 = HouseholdMember(
             id=f"member_{secrets.token_hex(4)}",
@@ -225,52 +227,71 @@ async def seed_demo_data(
             calorie_target=1800,
             protein_target=60
         )
+        m3 = HouseholdMember(
+            id=f"member_{secrets.token_hex(4)}",
+            household_id=hh_id,
+            name="Tommy (Child)",
+            dietary_preference="any",
+            allergies=[],
+            calorie_target=1400,
+            protein_target=40
+        )
         db.add(m1)
         db.add(m2)
+        db.add(m3)
 
-        # Pantry Items
-        p1 = PantryItem(
-            id=f"pantry_{secrets.token_hex(4)}",
-            household_id=hh_id,
-            item_name="Nandini Fresh Milk 1L",
-            quantity=1.0,
-            unit="unit",
-            min_threshold=2.0
-        )
-        p2 = PantryItem(
-            id=f"pantry_{secrets.token_hex(4)}",
-            household_id=hh_id,
-            item_name="Eggoz White Eggs 6pcs",
-            quantity=2.0,
-            unit="unit",
-            min_threshold=1.0
-        )
-        p3 = PantryItem(
-            id=f"pantry_{secrets.token_hex(4)}",
-            household_id=hh_id,
-            item_name="India Gate Basmati Rice 1kg",
-            quantity=0.0,
-            unit="unit",
-            min_threshold=1.0
-        )
-        db.add(p1)
-        db.add(p2)
-        db.add(p3)
+        # Pantry Items — mixed stock levels for demo story
+        pantry_seed = [
+            ("Milk", 1.0, "L", 2.0),       # low stock
+            ("Eggs", 6.0, "unit", 6.0),     # ok
+            ("Rice", 0.0, "kg", 1.0),       # out of stock
+            ("Onion", 2.0, "kg", 1.0),      # ok
+            ("Curd", 0.5, "kg", 1.0),       # low stock
+            ("Tomato", 0.3, "kg", 0.5),     # low stock
+        ]
+        for name, qty, unit, threshold in pantry_seed:
+            db.add(PantryItem(
+                id=f"pantry_{secrets.token_hex(4)}",
+                household_id=hh_id,
+                item_name=name,
+                quantity=qty,
+                unit=unit,
+                min_threshold=threshold,
+            ))
 
-        # Grocery List & Item
+        # Grocery List with 2 unpurchased items
         gl_id = f"list_{secrets.token_hex(4)}"
         gl = GroceryList(id=gl_id, household_id=hh_id, name="Shopping List")
         db.add(gl)
 
-        gli = GroceryListItem(
-            id=f"item_{secrets.token_hex(4)}",
-            grocery_list_id=gl_id,
-            item_name="Hybrid Tomato 500g",
-            quantity=2.0,
-            unit="unit",
-            is_purchased=False
-        )
-        db.add(gli)
+        grocery_seed = [
+            ("Chicken Breast", 0.5, "kg"),
+            ("Paneer", 0.25, "kg"),
+        ]
+        for name, qty, unit in grocery_seed:
+            db.add(GroceryListItem(
+                id=f"item_{secrets.token_hex(4)}",
+                grocery_list_id=gl_id,
+                item_name=name,
+                quantity=qty,
+                unit=unit,
+                is_purchased=False,
+            ))
+
+        # 1 Recipe Plan (Paneer Butter Masala for tomorrow)
+        db.add(RecipePlan(
+            id=f"plan_{secrets.token_hex(4)}",
+            household_id=hh_id,
+            recipe_name="Paneer Butter Masala",
+            ingredients=[
+                {"name": "paneer", "qty": 0.25, "unit": "kg"},
+                {"name": "butter", "qty": 0.05, "unit": "kg"},
+                {"name": "tomato", "qty": 0.2, "unit": "kg"},
+                {"name": "cream", "qty": 0.05, "unit": "L"},
+                {"name": "onion", "qty": 0.1, "unit": "kg"},
+            ],
+            planned_for_date=datetime.date.today() + datetime.timedelta(days=1),
+        ))
 
         db.commit()
         return {"success": True, "message": "Demo data seeded successfully."}

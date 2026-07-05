@@ -1,5 +1,5 @@
 import secrets
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -7,6 +7,11 @@ from backend.db.session import get_db
 from backend.auth.sessions import get_current_user_id
 from backend.household.models import Household, HouseholdMember
 from backend.household.service import get_or_create_user_household
+from backend.household.intelligence import (
+    detect_low_stock,
+    suggest_cookable_recipes,
+    compute_nutrition_insights,
+)
 
 router = APIRouter(prefix="/household", tags=["Household Management"])
 
@@ -150,3 +155,44 @@ async def delete_household_member(
     db.delete(member)
     db.commit()
     return {"success": True, "message": "Household member removed successfully."}
+
+
+# ── Sprint 11: Intelligence Endpoints ──────────────────
+
+@router.get("/low-stock")
+async def get_low_stock_alerts(
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Scans pantry for items below their restock threshold.
+    Auto-adds out-of-stock items to the grocery list.
+    """
+    household = get_or_create_user_household(db, user_id)
+    return detect_low_stock(db, household.id, auto_add_to_grocery=True)
+
+
+@router.get("/cook-today")
+async def get_cook_today_suggestions(
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns recipe suggestions ranked by pantry coverage,
+    filtered by household dietary constraints.
+    """
+    household = get_or_create_user_household(db, user_id)
+    return suggest_cookable_recipes(db, household.id)
+
+
+@router.get("/insights")
+async def get_household_insights(
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Aggregated nutrition targets, dietary preferences,
+    allergen constraints, and conflict detection for the household.
+    """
+    household = get_or_create_user_household(db, user_id)
+    return compute_nutrition_insights(db, household.id)

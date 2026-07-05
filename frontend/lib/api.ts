@@ -664,4 +664,127 @@ export const api = {
       method: "POST"
     });
   },
+
+  // ── Sprint 11: Intelligence Endpoints ──────────────────
+
+  /**
+   * Scans pantry for low-stock and out-of-stock items.
+   */
+  async getLowStockAlerts(): Promise<LowStockResponse> {
+    return apiFetch<LowStockResponse>("/household/low-stock");
+  },
+
+  /**
+   * Returns recipe suggestions ranked by pantry coverage.
+   */
+  async getCookTodaySuggestions(): Promise<CookTodayResponse> {
+    return apiFetch<CookTodayResponse>("/household/cook-today");
+  },
+
+  /**
+   * Returns household nutrition insights, dietary conflicts, and combined allergies.
+   */
+  async getHouseholdInsights(): Promise<HouseholdInsightsResponse> {
+    return apiFetch<HouseholdInsightsResponse>("/household/insights");
+  },
+
+  /**
+   * Groups unpurchased grocery items by category with priority scoring.
+   */
+  async getGroupedGroceryList(): Promise<GroupedGroceryResponse> {
+    return apiFetch<GroupedGroceryResponse>("/grocery-list/grouped");
+  },
 };
+
+// ── Sprint 11: Intelligence Response Types ──────────────
+
+export interface LowStockAlert {
+  item_name: string;
+  current_qty: number;
+  unit: string;
+  min_threshold: number;
+  deficit: number;
+  severity: "out_of_stock" | "low";
+}
+
+export interface LowStockResponse {
+  alerts: LowStockAlert[];
+  total_alerts: number;
+  out_of_stock_count: number;
+  low_stock_count: number;
+  auto_added_to_grocery: string[];
+}
+
+export interface RecipeMissingItem {
+  name: string;
+  needed: number;
+  have: number;
+  deficit: number;
+  unit: string;
+}
+
+export interface RecipeSuggestion {
+  name: string;
+  tag: string;
+  diet: string;
+  coverage_pct: number;
+  total_ingredients: number;
+  matched_ingredients: number;
+  missing_items: RecipeMissingItem[];
+  can_cook_now: boolean;
+}
+
+export interface SkippedRecipe {
+  recipe: string;
+  reason: string;
+}
+
+export interface CookTodayResponse {
+  suggestions: RecipeSuggestion[];
+  total_recipes: number;
+  cookable_now: number;
+  skipped_recipes: SkippedRecipe[];
+}
+
+export interface MemberInsight {
+  id: string;
+  name: string;
+  dietary_preference: string;
+  allergies: string[];
+  calorie_target: number;
+  protein_target: number;
+  has_targets: boolean;
+}
+
+export interface HouseholdInsightsResponse {
+  total_members: number;
+  total_household_calories: number;
+  total_household_protein: number;
+  member_breakdown: MemberInsight[];
+  combined_allergies: string[];
+  dietary_preferences: string[];
+  dietary_conflicts: string[];
+}
+
+export interface GroupedGroceryItem {
+  id: string;
+  item_name: string;
+  quantity: number;
+  unit: string;
+  priority: "urgent" | "soon" | "optional";
+  priority_score: number;
+  added_at: string | null;
+}
+
+export interface GroceryGroup {
+  category: string;
+  priority_score: number;
+  items: GroupedGroceryItem[];
+  item_count: number;
+}
+
+export interface GroupedGroceryResponse {
+  groups: GroceryGroup[];
+  total_items: number;
+  high_priority_count: number;
+}

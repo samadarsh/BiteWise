@@ -61,6 +61,7 @@ def run_suite():
         ("test_swiggy_oauth_callback_success_redirect", test_oauth_pkce.test_swiggy_oauth_callback_success_redirect),
         ("test_swiggy_oauth_callback_failure_redirect", test_oauth_pkce.test_swiggy_oauth_callback_failure_redirect),
         ("test_household_module_flow", test_household.test_household_module_flow),
+        ("test_household_intelligence_flow", test_household.test_household_intelligence_flow),
     ]
 
     passed = 0

@@ -177,3 +177,139 @@ def test_household_module_flow():
     finally:
         db.close()
         app.dependency_overrides.pop(get_current_user_id, None)
+
+
+def test_household_intelligence_flow():
+    """Sprint 11: Tests low-stock detection, cook-today suggestions, insights, and grocery grouping."""
+
+    test_user_id = "user_test_intel"
+
+    app.dependency_overrides[get_current_user_id] = lambda: test_user_id
+
+    db = SessionLocal()
+    try:
+        # Pre-cleanup
+        member = db.query(HouseholdMember).filter(HouseholdMember.user_id == test_user_id).first()
+        if member:
+            hh_id = member.household_id
+            db.query(RecipePlan).filter(RecipePlan.household_id == hh_id).delete()
+            db.query(PantryItem).filter(PantryItem.household_id == hh_id).delete()
+            g_lists = db.query(GroceryList).filter(GroceryList.household_id == hh_id).all()
+            for gl in g_lists:
+                db.query(GroceryListItem).filter(GroceryListItem.grocery_list_id == gl.id).delete()
+                db.delete(gl)
+            db.query(HouseholdMember).filter(HouseholdMember.household_id == hh_id).delete()
+            db.query(Household).filter(Household.id == hh_id).delete()
+            db.commit()
+
+        with TestClient(app) as client:
+            # Auto-provision household
+            res_hh = client.get("/household/my-home")
+            assert res_hh.status_code == 200
+            household_id = res_hh.json()["id"]
+
+            # Add a vegetarian member with peanut allergy
+            client.post("/household/members", json={
+                "name": "Jane (Spouse)",
+                "dietary_preference": "vegetarian",
+                "allergies": ["peanuts"],
+                "calorie_target": 1800,
+                "protein_target": 60
+            })
+
+            # Seed pantry with known stock levels
+            pantry_seed = [
+                ("Milk", 1.0, "L", 2.0),       # low
+                ("Eggs", 6.0, "unit", 6.0),     # ok
+                ("Rice", 0.0, "kg", 1.0),       # out of stock
+                ("Onion", 2.0, "kg", 1.0),      # ok
+                ("Curd", 0.5, "kg", 1.0),       # low
+                ("Tomato", 0.3, "kg", 0.5),     # low
+            ]
+            for name, qty, unit, threshold in pantry_seed:
+                client.post("/pantry", json={
+                    "item_name": name,
+                    "quantity": qty,
+                    "unit": unit,
+                    "min_threshold": threshold,
+                })
+
+            # ── Test 1: Low-Stock Detection ──────────────
+            res_low = client.get("/household/low-stock")
+            assert res_low.status_code == 200
+            low_data = res_low.json()
+            assert low_data["total_alerts"] == 4  # Milk, Rice, Curd, Tomato
+            assert low_data["out_of_stock_count"] == 1  # Rice
+            assert low_data["low_stock_count"] == 3  # Milk, Curd, Tomato
+
+            severities = {a["item_name"]: a["severity"] for a in low_data["alerts"]}
+            assert severities["Rice"] == "out_of_stock"
+            assert severities["Milk"] == "low"
+            assert severities["Curd"] == "low"
+            assert severities["Tomato"] == "low"
+
+            # Rice should be auto-added to grocery list
+            assert "Rice" in low_data["auto_added_to_grocery"]
+
+            # ── Test 2: Cook Today Suggestions ──────────────
+            res_cook = client.get("/household/cook-today")
+            assert res_cook.status_code == 200
+            cook_data = res_cook.json()
+            assert cook_data["total_recipes"] > 0
+
+            # Should skip non-veg recipes because Jane is vegetarian
+            suggestion_names = [s["name"] for s in cook_data["suggestions"]]
+            assert "Butter Chicken" not in suggestion_names
+            assert "Masala Omelette" not in suggestion_names
+
+            # Lemon Rice should be skipped due to peanut allergy
+            skipped_names = [s["recipe"] for s in cook_data["skipped_recipes"]]
+            assert "Lemon Rice" in skipped_names
+
+            # Curd Rice should be suggested (we have rice=0 but still appears with coverage < 100)
+            assert "Curd Rice" in suggestion_names
+
+            # Suggestions should be sorted by coverage descending
+            coverages = [s["coverage_pct"] for s in cook_data["suggestions"]]
+            assert coverages == sorted(coverages, reverse=True)
+
+            # ── Test 3: Household Insights ──────────────
+            res_insights = client.get("/household/insights")
+            assert res_insights.status_code == 200
+            insights = res_insights.json()
+            assert insights["total_members"] == 2
+            assert insights["total_household_protein"] == 60  # Primary has 0 target, Jane has 60
+            assert "peanuts" in insights["combined_allergies"]
+            assert len(insights["dietary_conflicts"]) > 0  # veg vs non-veg
+
+            # ── Test 4: Grocery Grouping ──────────────
+            # Add a chicken item to grocery list
+            client.post("/grocery-list/items", json={
+                "item_name": "Chicken Breast",
+                "quantity": 0.5,
+                "unit": "kg"
+            })
+
+            res_grouped = client.get("/grocery-list/grouped")
+            assert res_grouped.status_code == 200
+            grouped = res_grouped.json()
+            assert grouped["total_items"] >= 2  # Rice (auto-added) + Chicken
+
+            # Verify categories exist
+            categories = [g["category"] for g in grouped["groups"]]
+            assert "Eggs & Meat" in categories or "Staples" in categories
+
+        # Post-cleanup
+        db.query(RecipePlan).filter(RecipePlan.household_id == household_id).delete()
+        db.query(PantryItem).filter(PantryItem.household_id == household_id).delete()
+        g_lists = db.query(GroceryList).filter(GroceryList.household_id == household_id).all()
+        for gl in g_lists:
+            db.query(GroceryListItem).filter(GroceryListItem.grocery_list_id == gl.id).delete()
+            db.delete(gl)
+        db.query(HouseholdMember).filter(HouseholdMember.household_id == household_id).delete()
+        db.query(Household).filter(Household.id == household_id).delete()
+        db.commit()
+
+    finally:
+        db.close()
+        app.dependency_overrides.pop(get_current_user_id, None)

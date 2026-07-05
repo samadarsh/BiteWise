@@ -9,6 +9,7 @@ from backend.auth.sessions import get_current_user_id
 from backend.grocery.models import GroceryList, GroceryListItem, RecipePlan, InstamartCartSession
 from backend.pantry.models import PantryItem
 from backend.household.service import get_or_create_user_household
+from backend.household.intelligence import group_grocery_items
 
 router = APIRouter(prefix="/grocery-list", tags=["Grocery List Management"])
 
@@ -364,3 +365,16 @@ async def generate_cart_preview(
         total_items_count=len(preview_items),
         total_estimated_cost_rupees=total_cost
     )
+
+
+@router.get("/grouped")
+async def get_grouped_grocery_list(
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Groups unpurchased grocery items by category (Dairy, Staples, etc.)
+    with priority scoring based on pantry low-stock and staleness.
+    """
+    household = get_or_create_user_household(db, user_id)
+    return group_grocery_items(db, household.id)
