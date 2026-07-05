@@ -11,9 +11,9 @@ const personalHighlights = [
 ];
 
 const householdHighlights = [
-  "Pantry memory for staples, fresh produce, snacks, and cooking essentials",
-  "Missing-ingredient detection for recipes, meal plans, and family grocery requests",
-  "Instamart MCP grocery cart building, clear-cart cleanup, checkout, and tracking"
+  "Pantry tracking with low-stock alerts and auto-restock to grocery list",
+  "\"What can I cook tonight?\" — recipe intelligence from pantry stock, filtered by family dietary needs",
+  "Grocery priority grouping with Instamart cart preview (no real checkout yet)"
 ];
 
 const platformSteps = [
@@ -151,6 +151,7 @@ export default function LandingPage() {
             <a href="#modes" className="hover:text-white">Modes</a>
             <a href="#how-it-works" className="hover:text-white">How It Works</a>
             <a href="#safety" className="hover:text-white">Safety</a>
+            <Link href="/pitch" className="hover:text-white">Demo Walkthrough</Link>
           </nav>
           <Link
             href="/app"
@@ -200,6 +201,12 @@ export default function LandingPage() {
                       {demoLoading ? "Opening Sandbox" : "Try Sandbox Demo"}
                     </button>
                   )}
+                  <Link
+                    href="/pitch"
+                    className="rounded-md border border-[#f4b544]/30 bg-[#f4b544]/8 px-6 py-3.5 text-sm font-bold text-[#ffd98a] transition hover:border-[#f4b544]/60 hover:bg-[#f4b544]/14 inline-block text-center"
+                  >
+                    Watch the Demo →
+                  </Link>
                 </>
               )}
             </div>
@@ -226,14 +233,18 @@ export default function LandingPage() {
               </p>
             )}
 
-            <dl className="mt-10 grid max-w-2xl grid-cols-3 gap-3 text-white">
+            <dl className="mt-10 grid max-w-2xl grid-cols-4 gap-3 text-white">
               <div className="border-l border-white/20 pl-4">
                 <dt className="text-2xl font-black">2</dt>
                 <dd className="mt-1 text-xs text-white/68">Product modes</dd>
               </div>
               <div className="border-l border-white/20 pl-4">
-                <dt className="text-2xl font-black">48+</dt>
+                <dt className="text-2xl font-black">52+</dt>
                 <dd className="mt-1 text-xs text-white/68">Verified tests</dd>
+              </div>
+              <div className="border-l border-white/20 pl-4">
+                <dt className="text-2xl font-black">10</dt>
+                <dd className="mt-1 text-xs text-white/68">Recipe templates</dd>
               </div>
               <div className="border-l border-white/20 pl-4">
                 <dt className="text-2xl font-black">1</dt>

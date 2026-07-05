@@ -10,6 +10,7 @@ import RelaxationOptions, { RelaxationOption } from "../components/RelaxationOpt
 import FeedbackModal from "../components/FeedbackModal";
 import CoachDashboard, { CoachDashboardRef } from "../components/CoachDashboard";
 import DemoControlBar from "../components/DemoControlBar";
+import DemoStoryBanner from "../components/DemoStoryBanner";
 import AlertBanner from "../components/AlertBanner";
 import LoadingSkeleton from "../components/LoadingSkeleton";
 import HouseholdDashboard from "./household/HouseholdDashboard";
@@ -748,6 +749,19 @@ export default function NutriOrderDashboard() {
             onReset={handleResetDemo}
             loading={demoLoading}
           />
+          <DemoStoryBanner
+            context={
+              activeTab === "household"
+                ? (demoLoading ? "household_empty" : "household_populated")
+                : placedOrderId
+                ? "order_placed"
+                : selectedMeal
+                ? "recommendation_selected"
+                : recommendations.length > 0
+                ? "search_ready"
+                : "just_seeded"
+            }
+          />
           {alertMessage && (
             <AlertBanner
               message={alertMessage}
@@ -766,7 +780,7 @@ export default function NutriOrderDashboard() {
                   : "border-transparent text-slate-400 hover:text-slate-200"
               }`}
             >
-              🥗 Personal Nutrition Coach
+              🥗 Nutrition Coach
             </button>
             <button
               onClick={() => setActiveTab("household")}
@@ -776,7 +790,7 @@ export default function NutriOrderDashboard() {
                   : "border-transparent text-slate-400 hover:text-slate-200"
               }`}
             >
-              🏡 Household Assistant (Instamart)
+              🏡 Household & Pantry
             </button>
           </div>
 
