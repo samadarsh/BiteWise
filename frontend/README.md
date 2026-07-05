@@ -1,36 +1,54 @@
-# NutriOrder AI Production Frontend
+# BiteWise Frontend
 
-This directory is a placeholder for the multi-user production-grade Next.js React application.
+This is the Next.js frontend for BiteWise.
 
-## 🚀 Future Setup Instructions
+BiteWise contains two product modules:
 
-When ready to initialize the Next.js stack, run the following setup steps:
+- **NutriOrder AI**: health-aware Swiggy food ordering.
+- **SmartPantry AI**: household pantry, recipe, and grocery planning.
 
-1. **Initialize Next.js App**:
-   ```bash
-   npx create-next-app@latest ./ --typescript --tailwind --eslint --src-dir=false --app
-   ```
-2. **Install UI Component Library (shadcn/ui)**:
-   ```bash
-   npx shadcn-ui@latest init
-   ```
-3. **Configure API proxying**:
-   Configure Next.js rewrites in `next.config.js` to proxy backend requests to the FastAPI microservice running on port `8000`:
-   ```javascript
-   /** @type {import('next').NextConfig} */
-   const nextConfig = {
-     async rewrites() {
-       return [
-         {
-           source: '/api/:path*',
-           destination: 'http://localhost:8000/:path*',
-         },
-       ]
-     },
-   }
-   module.exports = nextConfig
-   ```
+## App Routes
 
-## 📂 Current Layout Stub
+- `/` - public landing page.
+- `/pitch` - guided demo walkthrough.
+- `/app` - authenticated dashboard with the NutriOrder AI and SmartPantry AI product switcher.
 
-* **[app/page.tsx](file:///Users/samadarsh/Documents/MY%20PROJECTS/nutriorderai/frontend/app/page.tsx)**: Draft layout showing component boundaries (OAuth integration, address selectors, cart reviews, and order tracking console).
+## Local Development
+
+Start the backend first:
+
+```bash
+cd path/to/nutriorderai
+.venv/bin/python -m uvicorn backend.main:app --port 8000 --reload
+```
+
+Then start the frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+## Verification
+
+```bash
+npm run lint
+npm run build
+```
+
+## Environment
+
+The frontend reads:
+
+```env
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+```
+
+If omitted, the client defaults to `http://127.0.0.1:8000`.
