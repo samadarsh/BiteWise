@@ -243,6 +243,31 @@ export const api = {
   },
 
   /**
+   * Retrieves the Swiggy config/status information.
+   */
+  async getSwiggyStatus(): Promise<{
+    success: boolean;
+    use_mock_mcp: boolean;
+    swiggy_env: string;
+    database_connected: boolean;
+    encryption_key_configured: boolean;
+    client_id_configured: boolean;
+    client_secret_configured: boolean;
+    redirect_uri_configured: boolean;
+  }> {
+    return apiFetch<{
+      success: boolean;
+      use_mock_mcp: boolean;
+      swiggy_env: string;
+      database_connected: boolean;
+      encryption_key_configured: boolean;
+      client_id_configured: boolean;
+      client_secret_configured: boolean;
+      redirect_uri_configured: boolean;
+    }>("/auth/swiggy/status");
+  },
+
+  /**
    * Triggers a mock/demo login.
    */
   async demoLogin(): Promise<{ success: boolean; user_id: string; message: string }> {

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { api, BASE_URL, UserProfile, Address, RecommendationMeal, CartInfo, Coupon } from "../lib/api";
 import OnboardingPanel from "../components/OnboardingPanel";
 import PriorityControls, { PriorityWeights } from "../components/PriorityControls";
@@ -11,6 +12,16 @@ import CoachDashboard, { CoachDashboardRef } from "../components/CoachDashboard"
 import DemoControlBar from "../components/DemoControlBar";
 import AlertBanner from "../components/AlertBanner";
 import LoadingSkeleton from "../components/LoadingSkeleton";
+
+interface SwiggyConfigStatus {
+  use_mock_mcp: boolean;
+  swiggy_env: string;
+  database_connected: boolean;
+  encryption_key_configured: boolean;
+  client_id_configured: boolean;
+  client_secret_configured: boolean;
+  redirect_uri_configured: boolean;
+}
 
 export default function NutriOrderDashboard() {
   // Authentication & Initialization
@@ -90,6 +101,8 @@ export default function NutriOrderDashboard() {
     }
   };
 
+  const [swiggyStatus, setSwiggyStatus] = useState<SwiggyConfigStatus | null>(null);
+
   // Check auth session on mount
   useEffect(() => {
     async function checkAuth() {
@@ -104,9 +117,30 @@ export default function NutriOrderDashboard() {
       } finally {
         setInitializing(false);
       }
+
+      try {
+        const status = await api.getSwiggyStatus();
+        setSwiggyStatus(status);
+      } catch (err) {
+        console.error("Failed to load Swiggy config status", err);
+      }
     }
     checkAuth();
   }, []);
+
+  // Real Swiggy Login handler
+  const handleSwiggyLogin = async () => {
+    setAuthLoading(true);
+    try {
+      const res = await api.startSwiggyOAuth();
+      window.location.href = res.redirect_url;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Swiggy OAuth start failed: ${msg}`);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   // Demo Login handler
   const handleDemoLogin = async () => {
@@ -553,15 +587,7 @@ export default function NutriOrderDashboard() {
                   Logout
                 </button>
               </div>
-            ) : (
-              <button
-                onClick={handleDemoLogin}
-                disabled={authLoading}
-                className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-800 text-slate-950 font-bold px-4 py-2 rounded-lg text-sm transition shadow-lg shadow-emerald-500/20 flex items-center gap-2"
-              >
-                {authLoading ? "Authorizing..." : "🔌 Staging Demo Login"}
-              </button>
-            )}
+            ) : null}
           </div>
         </div>
       </header>
@@ -574,29 +600,37 @@ export default function NutriOrderDashboard() {
             <div className="h-16 w-16 bg-gradient-to-tr from-emerald-400 to-lime-300 rounded-2xl flex items-center justify-center text-3xl shadow-xl shadow-emerald-500/15">
               🥗
             </div>
-            <h2 className="text-3xl font-extrabold tracking-tight">
+            <h2 className="text-3xl font-extrabold tracking-tight text-white">
               Welcome to <span className="bg-gradient-to-r from-emerald-400 to-lime-300 bg-clip-text text-transparent">NutriOrder AI</span>
             </h2>
             <p className="text-slate-400 text-sm leading-relaxed">
               We leverage Swiggy&apos;s MCP Staging Lab to scan menus, filter target macros (protein & calories), and place secure, compliant food orders aligned with your goals.
             </p>
-            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 w-full text-left flex flex-col gap-2 text-xs text-slate-500">
-              <p className="font-semibold text-slate-400 flex items-center gap-1.5">
-                🛡️ Mock Staging Integration Enabled:
-              </p>
-              <ul className="list-disc list-inside space-y-1">
-                <li>PKCE secure token storage inside encrypted DB engine.</li>
-                <li>Safe transition checkout state machine locks.</li>
-                <li>Bypasses real OAuth and uses SQLite mocks.</li>
-              </ul>
-            </div>
+
             <button
-              onClick={handleDemoLogin}
+              onClick={handleSwiggyLogin}
               disabled={authLoading}
-              className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-800 text-slate-950 font-bold py-3.5 rounded-xl transition text-base shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2"
+              className="w-full bg-[#f4b544] hover:bg-[#ffd071] text-[#17211c] font-black py-3.5 rounded-xl transition text-base shadow-xl flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {authLoading ? "Initializing Consent..." : "Connect Demo Account"}
+              {authLoading ? "Initializing..." : "Continue with Swiggy"}
             </button>
+
+            {swiggyStatus?.use_mock_mcp !== false && (
+              <button
+                onClick={handleDemoLogin}
+                disabled={authLoading}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3.5 rounded-xl transition text-base shadow-xl border border-slate-700 flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {authLoading ? "Opening Sandbox..." : "Connect Demo Account"}
+              </button>
+            )}
+
+            <Link
+              href="/"
+              className="text-slate-400 hover:text-slate-200 text-sm font-semibold underline transition mt-2"
+            >
+              Back to Landing Page
+            </Link>
           </div>
         </main>
       ) : (!profile || profile.weight_kg === null || profile.height_cm === null || profile.age === null || editingProfile) ? (

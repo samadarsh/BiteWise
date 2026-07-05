@@ -20,6 +20,7 @@ class Settings:
     swiggy_client_secret: str
     swiggy_redirect_uri: str
     allow_place_order: bool
+    frontend_base_url: str
     cors_allowed_origins: List[str] = field(default_factory=list)
 
 def get_settings() -> Settings:
@@ -40,5 +41,6 @@ def get_settings() -> Settings:
         swiggy_client_secret=os.getenv("SWIGGY_CLIENT_SECRET", ""),
         swiggy_redirect_uri=os.getenv("SWIGGY_REDIRECT_URI", "http://localhost:8000/auth/swiggy/callback"),
         allow_place_order=os.getenv("ALLOW_PLACE_ORDER", "false").lower() == "true",
+        frontend_base_url=os.getenv("FRONTEND_BASE_URL", "http://localhost:3000"),
         cors_allowed_origins=origins
     )

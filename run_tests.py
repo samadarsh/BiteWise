@@ -58,6 +58,8 @@ def run_suite():
         ("test_swiggy_oauth_callback_state_verification", test_oauth_pkce.test_swiggy_oauth_callback_state_verification),
         ("test_swiggy_oauth_callback_mock_mode_success", test_oauth_pkce.test_swiggy_oauth_callback_mock_mode_success),
         ("test_swiggy_oauth_callback_production_token_exchange", test_oauth_pkce.test_swiggy_oauth_callback_production_token_exchange),
+        ("test_swiggy_oauth_callback_success_redirect", test_oauth_pkce.test_swiggy_oauth_callback_success_redirect),
+        ("test_swiggy_oauth_callback_failure_redirect", test_oauth_pkce.test_swiggy_oauth_callback_failure_redirect),
     ]
 
     passed = 0

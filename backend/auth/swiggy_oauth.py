@@ -73,15 +73,18 @@ async def start_swiggy_oauth(response: Response) -> Dict[str, str]:
         "redirect_url": f"{settings.swiggy_auth_url}?{urlencode(params)}"
     }
 
+from fastapi.responses import RedirectResponse
+
 @router.get("/swiggy/callback")
 async def swiggy_oauth_callback(
     response: Response,
     code: str = Query(..., description="Authorization code returned by Swiggy"),
     state: str = Query(None, description="CSRF state protection string"),
+    return_json: bool = Query(False, description="If true, returns JSON instead of redirecting"),
     oauth_code_verifier: Optional[str] = Cookie(None),
     oauth_state: Optional[str] = Cookie(None),
     db: Session = Depends(get_db)
-) -> Dict[str, Any]:
+):
     """
     Step 2 of Swiggy OAuth 2.1 PKCE Flow.
     Exchanges authorization code, encrypts token, and stores User Session in DB.
@@ -90,19 +93,31 @@ async def swiggy_oauth_callback(
         response.delete_cookie("oauth_code_verifier")
         response.delete_cookie("oauth_state")
 
+    def handle_error(status_code: int, detail: str):
+        if return_json:
+            clean_cookies()
+            raise HTTPException(status_code=status_code, detail=detail)
+
+        from urllib.parse import quote
+        settings = get_settings()
+        redirect_res = RedirectResponse(
+            url=f"{settings.frontend_base_url}/?auth_error={quote(detail)}"
+        )
+        redirect_res.delete_cookie("oauth_code_verifier")
+        redirect_res.delete_cookie("oauth_state")
+        return redirect_res
+
     # State validation
     if not state or state != oauth_state:
-        clean_cookies()
-        raise HTTPException(
-            status_code=400,
-            detail="OAuth state parameter mismatch or session expired. Potential CSRF detected."
+        return handle_error(
+            400,
+            "OAuth state parameter mismatch or session expired. Potential CSRF detected."
         )
 
     if not oauth_code_verifier:
-        clean_cookies()
-        raise HTTPException(
-            status_code=400,
-            detail="OAuth code verifier session expired or missing."
+        return handle_error(
+            400,
+            "OAuth code verifier session expired or missing."
         )
 
     if not _is_mock_or_dev():
@@ -125,7 +140,6 @@ async def swiggy_oauth_callback(
                 headers={"Content-Type": "application/json"},
                 timeout=15
             )
-            clean_cookies()
             token_res.raise_for_status()
             res_data = token_res.json()
             access_token = res_data.get("access_token")
@@ -133,9 +147,8 @@ async def swiggy_oauth_callback(
             scope = res_data.get("scope", "mcp:tools")
 
             if not access_token:
-                raise HTTPException(status_code=502, detail="Swiggy token response missing access_token.")
+                return handle_error(502, "Swiggy token response missing access_token.")
         except requests.exceptions.RequestException as e:
-            clean_cookies()
             status = e.response.status_code if hasattr(e, "response") and e.response else 502
             detail = f"Failed to exchange authorization code: {str(e)}"
             if hasattr(e, "response") and e.response:
@@ -144,10 +157,9 @@ async def swiggy_oauth_callback(
                     detail = err_json.get("error_description") or err_json.get("error") or detail
                 except Exception:
                     pass
-            raise HTTPException(status_code=status, detail=detail)
+            return handle_error(status, detail)
     else:
         # Mock mode fallback
-        clean_cookies()
         access_token = f"token_swiggy_{secrets.token_hex(16)}"
         expires_in = 432000
         scope = "mcp:tools"
@@ -184,22 +196,38 @@ async def swiggy_oauth_callback(
 
     db.commit()
 
-    # Set Cookie
-    response.set_cookie(
-        key="nutriorder_session",
-        value=user_id,
-        httponly=True,
-        secure=False,  # Allow HTTP for local testing
-        samesite="lax",
-        max_age=432000
-    )
-
-    return {
-        "success": True,
-        "user_id": user_id,
-        "message": "Authenticated successfully. Encrypted credentials saved in DB.",
-        "expires_in_seconds": 432000
-    }
+    if return_json:
+        # Set cookie on injected response parameter
+        response.set_cookie(
+            key="nutriorder_session",
+            value=user_id,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=432000
+        )
+        clean_cookies()
+        return {
+            "success": True,
+            "user_id": user_id,
+            "message": "Authenticated successfully. Encrypted credentials saved in DB.",
+            "expires_in_seconds": 432000
+        }
+    else:
+        settings = get_settings()
+        redirect_res = RedirectResponse(url=f"{settings.frontend_base_url}/app")
+        redirect_res.set_cookie(
+            key="nutriorder_session",
+            value=user_id,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=432000
+        )
+        # Clean oauth verifier/state cookies on successful redirect
+        redirect_res.delete_cookie("oauth_code_verifier")
+        redirect_res.delete_cookie("oauth_state")
+        return redirect_res
 
 @router.post("/demo-login")
 async def demo_login(response: Response, db: Session = Depends(get_db)) -> Dict[str, Any]:

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { api } from "../lib/api";
+import { api, UserProfile } from "../lib/api";
 
 const personalHighlights = [
   "Fitness-goal profile with calories, protein, preferences, allergies, and budget",
@@ -35,10 +35,57 @@ const platformSteps = [
   }
 ];
 
+interface SwiggyConfigStatus {
+  use_mock_mcp: boolean;
+  swiggy_env: string;
+  database_connected: boolean;
+  encryption_key_configured: boolean;
+  client_id_configured: boolean;
+  client_secret_configured: boolean;
+  redirect_uri_configured: boolean;
+}
+
 export default function LandingPage() {
   const [authLoading, setAuthLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [swiggyStatus, setSwiggyStatus] = useState<SwiggyConfigStatus | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+
+  useEffect(() => {
+    // Query session & staging status
+    const loadSessionData = async () => {
+      // 1. Read URL auth_error search param asynchronously in effect to avoid cascading render lint warning
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const err = params.get("auth_error");
+        if (err) {
+          setMessage("Swiggy login failed. Please try again.");
+        }
+      }
+
+      try {
+        const [prof, status] = await Promise.all([
+          api.getProfile(),
+          api.getSwiggyStatus()
+        ]);
+        setUserProfile(prof);
+        setSwiggyStatus(status);
+      } catch {
+        // Fallback status read on unauthenticated profile error
+        try {
+          const status = await api.getSwiggyStatus();
+          setSwiggyStatus(status);
+        } catch {
+          // ignore
+        }
+      } finally {
+        setSessionLoading(false);
+      }
+    };
+    loadSessionData();
+  }, []);
 
   const startSwiggyLogin = async () => {
     setAuthLoading(true);
@@ -68,6 +115,8 @@ export default function LandingPage() {
     }
   };
 
+  const showDemoCTA = swiggyStatus?.use_mock_mcp !== false;
+
   return (
     <main className="min-h-screen bg-[#f7f4ec] text-[#17211c]">
       <section
@@ -90,12 +139,12 @@ export default function LandingPage() {
             <a href="#how-it-works" className="hover:text-white">How It Works</a>
             <a href="#safety" className="hover:text-white">Safety</a>
           </nav>
-          <a
+          <Link
             href="/app"
             className="rounded-md border border-white/24 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/70 hover:bg-white/10"
           >
             Open App
-          </a>
+          </Link>
         </header>
 
         <div className="relative z-10 mx-auto flex min-h-[calc(86svh-80px)] max-w-7xl items-center px-5 pb-14 pt-8 sm:px-8">
@@ -111,20 +160,35 @@ export default function LandingPage() {
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <button
-                onClick={startSwiggyLogin}
-                disabled={authLoading}
-                className="rounded-md bg-[#f4b544] px-6 py-3.5 text-sm font-black text-[#17211c] shadow-[0_18px_50px_rgba(244,181,68,0.28)] transition hover:bg-[#ffd071] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {authLoading ? "Starting Swiggy Login" : "Continue with Swiggy"}
-              </button>
-              <button
-                onClick={startDemo}
-                disabled={demoLoading}
-                className="rounded-md border border-white/28 bg-white/8 px-6 py-3.5 text-sm font-bold text-white transition hover:border-white/70 hover:bg-white/14 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {demoLoading ? "Opening Sandbox" : "Try Sandbox Demo"}
-              </button>
+              {sessionLoading ? (
+                <div className="h-12 w-48 rounded-md bg-white/10 animate-pulse" />
+              ) : userProfile ? (
+                <Link
+                  href="/app"
+                  className="rounded-md bg-[#f4b544] px-6 py-3.5 text-sm font-black text-[#17211c] shadow-[0_18px_50px_rgba(244,181,68,0.28)] transition hover:bg-[#ffd071] inline-block text-center"
+                >
+                  Open Dashboard
+                </Link>
+              ) : (
+                <>
+                  <button
+                    onClick={startSwiggyLogin}
+                    disabled={authLoading}
+                    className="rounded-md bg-[#f4b544] px-6 py-3.5 text-sm font-black text-[#17211c] shadow-[0_18px_50px_rgba(244,181,68,0.28)] transition hover:bg-[#ffd071] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {authLoading ? "Starting Swiggy Login" : "Continue with Swiggy"}
+                  </button>
+                  {showDemoCTA && (
+                    <button
+                      onClick={startDemo}
+                      disabled={demoLoading}
+                      className="rounded-md border border-white/28 bg-white/8 px-6 py-3.5 text-sm font-bold text-white transition hover:border-white/70 hover:bg-white/14 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {demoLoading ? "Opening Sandbox" : "Try Sandbox Demo"}
+                    </button>
+                  )}
+                </>
+              )}
             </div>
 
             {message && (

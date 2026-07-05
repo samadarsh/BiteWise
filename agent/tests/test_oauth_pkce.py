@@ -26,15 +26,15 @@ def test_swiggy_oauth_start_sets_cookies_and_returns_url():
 def test_swiggy_oauth_callback_state_verification():
     """Verify that callback endpoint rejects missing or mismatched state cookies."""
     with TestClient(app) as client:
-        # 1. Missing cookies
-        res = client.get("/auth/swiggy/callback?code=mock_code&state=mock_state")
+        # 1. Missing cookies (using return_json=true)
+        res = client.get("/auth/swiggy/callback?code=mock_code&state=mock_state&return_json=true")
         assert res.status_code == 400
         assert "state parameter mismatch" in res.json()["detail"]
 
         # 2. Mismatched state value
         client.cookies.set("oauth_state", "real_state")
         client.cookies.set("oauth_code_verifier", "real_verifier")
-        res2 = client.get("/auth/swiggy/callback?code=mock_code&state=fake_state")
+        res2 = client.get("/auth/swiggy/callback?code=mock_code&state=fake_state&return_json=true")
         assert res2.status_code == 400
         assert "state parameter mismatch" in res2.json()["detail"]
         # Cookies must be cleared
@@ -42,7 +42,7 @@ def test_swiggy_oauth_callback_state_verification():
         assert "oauth_code_verifier" not in res2.cookies
 
 def test_swiggy_oauth_callback_mock_mode_success():
-    """Verify that mock callback succeeds and auto-provisions user profile."""
+    """Verify that mock callback succeeds and auto-provisions user profile with JSON response."""
     original_key = os.environ.get("ENCRYPTION_KEY")
     os.environ["ENCRYPTION_KEY"] = secrets.token_hex(32)
 
@@ -51,7 +51,7 @@ def test_swiggy_oauth_callback_mock_mode_success():
             client.cookies.set("oauth_state", "my_state")
             client.cookies.set("oauth_code_verifier", "my_verifier")
 
-            res = client.get("/auth/swiggy/callback?code=mock_code&state=my_state")
+            res = client.get("/auth/swiggy/callback?code=mock_code&state=my_state&return_json=true")
             assert res.status_code == 200
             data = res.json()
             assert data["success"] is True
@@ -114,7 +114,7 @@ def test_swiggy_oauth_callback_production_token_exchange(mock_post):
             client.cookies.set("oauth_state", "stg_state")
             client.cookies.set("oauth_code_verifier", "stg_verifier")
 
-            res = client.get("/auth/swiggy/callback?code=stg_code&state=stg_state")
+            res = client.get("/auth/swiggy/callback?code=stg_code&state=stg_state&return_json=true")
             assert res.status_code == 200
             data = res.json()
             assert data["success"] is True
@@ -148,3 +148,29 @@ def test_swiggy_oauth_callback_production_token_exchange(mock_post):
         else: os.environ.pop("SWIGGY_CLIENT_ID", None)
         if original_client_secret: os.environ["SWIGGY_CLIENT_SECRET"] = original_client_secret
         else: os.environ.pop("SWIGGY_CLIENT_SECRET", None)
+
+def test_swiggy_oauth_callback_success_redirect():
+    """Verify that successful oauth callback redirects to frontend app dashboard."""
+    with TestClient(app) as client:
+        client.cookies.set("oauth_state", "my_state")
+        client.cookies.set("oauth_code_verifier", "my_verifier")
+
+        # Disable redirect following to inspect 307 redirect status
+        res = client.get("/auth/swiggy/callback?code=mock_code&state=my_state", follow_redirects=False)
+        assert res.status_code == 307
+        assert "/app" in res.headers.get("location")
+        assert "nutriorder_session" in res.cookies
+
+def test_swiggy_oauth_callback_failure_redirect():
+    """Verify that failed oauth callback redirects to frontend landing page with error parameter."""
+    with TestClient(app) as client:
+        client.cookies.set("oauth_state", "my_state")
+        client.cookies.set("oauth_code_verifier", "my_verifier")
+
+        # Mismatched state should trigger redirect failure
+        res = client.get("/auth/swiggy/callback?code=mock_code&state=bad_state", follow_redirects=False)
+        assert res.status_code == 307
+        assert "/?auth_error=" in res.headers.get("location")
+        # Verify PKCE cookies are deleted
+        assert "oauth_state" not in res.cookies
+        assert "oauth_code_verifier" not in res.cookies
