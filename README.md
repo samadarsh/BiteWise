@@ -1,4 +1,4 @@
-# 🍽️ BiteWise
+# BiteWise
 
 BiteWise is a food intelligence platform that helps people decide what to eat, what to cook, and what to restock.
 
