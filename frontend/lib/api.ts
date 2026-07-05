@@ -243,6 +243,13 @@ export const api = {
   },
 
   /**
+   * Performs a direct root-level backend health check.
+   */
+  async getHealth(): Promise<{ status: string; app: string }> {
+    return apiFetch<{ status: string; app: string }>("/health");
+  },
+
+  /**
    * Retrieves the Swiggy config/status information.
    */
   async getSwiggyStatus(): Promise<{

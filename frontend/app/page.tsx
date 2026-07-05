@@ -67,27 +67,29 @@ export default function LandingPage() {
       }
 
       try {
+        // Explicitly check health first
+        await api.getHealth();
+        setBackendOffline(false);
+      } catch {
+        setBackendOffline(true);
+        setSessionLoading(false);
+        return;
+      }
+
+      try {
         const [prof, status] = await Promise.all([
           api.getProfile(),
           api.getSwiggyStatus()
         ]);
         setUserProfile(prof);
         setSwiggyStatus(status);
-        setBackendOffline(false);
       } catch {
         // Fallback status read on unauthenticated profile error
         try {
           const status = await api.getSwiggyStatus();
           setSwiggyStatus(status);
-          setBackendOffline(false);
-        } catch (statusErr) {
-          // If both fail, verify if it was a network error (e.g. status code missing or status is 0)
-          const isNetworkError = !(statusErr && typeof statusErr === "object" && "status" in statusErr);
-          if (isNetworkError) {
-            setBackendOffline(true);
-          } else {
-            setBackendOffline(false);
-          }
+        } catch {
+          // ignore
         }
       } finally {
         setSessionLoading(false);
@@ -126,7 +128,7 @@ export default function LandingPage() {
     }
   };
 
-  const showDemoCTA = swiggyStatus?.use_mock_mcp !== false || backendOffline;
+  const showDemoCTA = !backendOffline && swiggyStatus?.use_mock_mcp === true;
 
   return (
     <main className="min-h-screen bg-[#f7f4ec] text-[#17211c]">
@@ -203,9 +205,19 @@ export default function LandingPage() {
             </div>
 
             {backendOffline && (
-              <p className="mt-5 max-w-xl rounded-md border border-[#df6b57]/50 bg-[#df6b57]/16 px-4 py-3 text-sm text-[#ffd7cf]">
-                Backend is offline. Start FastAPI on port 8000 to use login and demo mode.
-              </p>
+              <div className="mt-5 max-w-xl rounded-md border border-[#df6b57]/50 bg-[#df6b57]/16 px-4 py-3 text-sm text-[#ffd7cf] text-left">
+                <p className="font-bold mb-2">Backend is offline. Start FastAPI on port 8000 to use login and demo mode.</p>
+                <div className="space-y-2 font-mono text-xs mt-2 bg-black/40 p-3 rounded border border-white/10">
+                  <div>
+                    <p className="text-white/60 mb-1"># start backend server</p>
+                    <code className="text-[#ffd071] select-all">.venv/bin/python -m uvicorn backend.main:app --port 8000 --reload</code>
+                  </div>
+                  <div className="pt-2 border-t border-white/5">
+                    <p className="text-white/60 mb-1"># start frontend server</p>
+                    <code className="text-[#ffd071] select-all">cd frontend && npm run dev</code>
+                  </div>
+                </div>
+              </div>
             )}
 
             {message && !backendOffline && (
