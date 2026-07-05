@@ -12,6 +12,7 @@ import CoachDashboard, { CoachDashboardRef } from "../components/CoachDashboard"
 import DemoControlBar from "../components/DemoControlBar";
 import AlertBanner from "../components/AlertBanner";
 import LoadingSkeleton from "../components/LoadingSkeleton";
+import HouseholdDashboard from "./household/HouseholdDashboard";
 
 interface SwiggyConfigStatus {
   use_mock_mcp: boolean;
@@ -26,6 +27,7 @@ interface SwiggyConfigStatus {
 export default function NutriOrderDashboard() {
   // Authentication & Initialization
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<"coach" | "household">("coach");
   const [authLoading, setAuthLoading] = useState<boolean>(false);
   const [initializing, setInitializing] = useState<boolean>(true);
 
@@ -754,7 +756,32 @@ export default function NutriOrderDashboard() {
             />
           )}
 
-          <main className="grid grid-cols-1 lg:grid-cols-12 gap-8 w-full">
+          {/* Tab Switcher Navigation */}
+          <div className="flex gap-4 border-b border-slate-900 pb-2">
+            <button
+              onClick={() => setActiveTab("coach")}
+              className={`pb-2 text-sm font-bold border-b-2 transition ${
+                activeTab === "coach"
+                  ? "border-emerald-500 text-emerald-400"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              🥗 Personal Nutrition Coach
+            </button>
+            <button
+              onClick={() => setActiveTab("household")}
+              className={`pb-2 text-sm font-bold border-b-2 transition ${
+                activeTab === "household"
+                  ? "border-emerald-500 text-emerald-400"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              🏡 Household Assistant (Instamart)
+            </button>
+          </div>
+
+          {activeTab === "coach" ? (
+            <main className="grid grid-cols-1 lg:grid-cols-12 gap-8 w-full">
             {/* Left Columns: Address, Profile & Query */}
             <div className="lg:col-span-4 flex flex-col gap-8">
 
@@ -1172,6 +1199,9 @@ export default function NutriOrderDashboard() {
             />
           </div>
         </main>
+      ) : (
+        <HouseholdDashboard />
+      )}
       </div>
       )}
 

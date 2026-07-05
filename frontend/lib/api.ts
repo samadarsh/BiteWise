@@ -232,6 +232,64 @@ export interface SwiggyOAuthStartResponse {
   redirect_url: string;
 }
 
+export interface HouseholdMember {
+  id: string;
+  household_id: string;
+  user_id?: string | null;
+  name: string;
+  dietary_preference: string;
+  allergies: string[];
+  calorie_target?: number | null;
+  protein_target?: number | null;
+}
+
+export interface Household {
+  id: string;
+  name: string;
+  members: HouseholdMember[];
+}
+
+export interface PantryItem {
+  id: string;
+  household_id: string;
+  item_name: string;
+  quantity: number;
+  unit: string;
+  min_threshold?: number | null;
+  updated_at: string;
+}
+
+export interface GroceryListItem {
+  id: string;
+  grocery_list_id: string;
+  item_name: string;
+  quantity: number;
+  unit: string;
+  is_purchased: boolean;
+  added_at: string;
+}
+
+export interface GroceryList {
+  id: string;
+  household_id: string;
+  name: string;
+  items: GroceryListItem[];
+}
+
+export interface CartPreviewItem {
+  item_name: string;
+  quantity: number;
+  unit: string;
+  matched_product_name: string;
+  price_in_rupees: number;
+  stock_status: string;
+}
+
+export interface CartPreview {
+  items: CartPreviewItem[];
+  total_items_count: number;
+  total_estimated_cost_rupees: number;
+}
 
 // API Endpoints
 export const api = {
@@ -477,6 +535,133 @@ export const api = {
   async seedDemo(): Promise<{ success: boolean; message: string }> {
     return apiFetch<{ success: boolean; message: string }>("/demo/seed", {
       method: "POST",
+    });
+  },
+
+  /**
+   * Retrieves the household for the current user.
+   */
+  async getHousehold(): Promise<Household> {
+    return apiFetch<Household>("/household/my-home");
+  },
+
+  /**
+   * Adds a member to the household.
+   */
+  async addHouseholdMember(member: { name: string; dietary_preference: string; allergies: string[]; calorie_target?: number; protein_target?: number }): Promise<HouseholdMember> {
+    return apiFetch<HouseholdMember>("/household/members", {
+      method: "POST",
+      body: JSON.stringify(member)
+    });
+  },
+
+  /**
+   * Updates a household member.
+   */
+  async updateHouseholdMember(memberId: string, member: { name: string; dietary_preference: string; allergies: string[]; calorie_target?: number; protein_target?: number }): Promise<HouseholdMember> {
+    return apiFetch<HouseholdMember>(`/household/members/${memberId}`, {
+      method: "PUT",
+      body: JSON.stringify(member)
+    });
+  },
+
+  /**
+   * Removes a member from the household.
+   */
+  async deleteHouseholdMember(memberId: string): Promise<{ success: boolean; message: string }> {
+    return apiFetch<{ success: boolean; message: string }>(`/household/members/${memberId}`, {
+      method: "DELETE"
+    });
+  },
+
+  /**
+   * Lists all pantry items.
+   */
+  async getPantry(): Promise<PantryItem[]> {
+    return apiFetch<PantryItem[]>("/pantry");
+  },
+
+  /**
+   * Adds or updates a pantry item.
+   */
+  async addOrUpdatePantryItem(item: { item_name: string; quantity: number; unit: string; min_threshold?: number }): Promise<PantryItem> {
+    return apiFetch<PantryItem>("/pantry", {
+      method: "POST",
+      body: JSON.stringify(item)
+    });
+  },
+
+  /**
+   * Removes an item from the pantry.
+   */
+  async deletePantryItem(itemId: string): Promise<{ success: boolean; message: string }> {
+    return apiFetch<{ success: boolean; message: string }>(`/pantry/${itemId}`, {
+      method: "DELETE"
+    });
+  },
+
+  /**
+   * Retrieves the active grocery list.
+   */
+  async getGroceryList(): Promise<GroceryList> {
+    return apiFetch<GroceryList>("/grocery-list");
+  },
+
+  /**
+   * Adds an item to the grocery list.
+   */
+  async addGroceryItem(item: { item_name: string; quantity: number; unit: string }): Promise<GroceryListItem> {
+    return apiFetch<GroceryListItem>("/grocery-list/items", {
+      method: "POST",
+      body: JSON.stringify(item)
+    });
+  },
+
+  /**
+   * Updates grocery list item purchased status.
+   */
+  async updateGroceryItem(itemId: string, isPurchased: boolean): Promise<GroceryListItem> {
+    return apiFetch<GroceryListItem>(`/grocery-list/items/${itemId}`, {
+      method: "PUT",
+      body: JSON.stringify({ is_purchased: isPurchased })
+    });
+  },
+
+  /**
+   * Removes an item from the grocery list.
+   */
+  async deleteGroceryItem(itemId: string): Promise<{ success: boolean; message: string }> {
+    return apiFetch<{ success: boolean; message: string }>(`/grocery-list/items/${itemId}`, {
+      method: "DELETE"
+    });
+  },
+
+  /**
+   * Scans a recipe and auto-provisions missing ingredients.
+   */
+  async matchRecipeIngredients(recipe: { recipe_name: string; ingredients: { name: string; qty: number; unit: string }[]; planned_for_date: string }): Promise<{
+    success: boolean;
+    recipe_plan_id: string;
+    added_to_grocery_list: { name: string; quantity: number; unit: string; reason: string }[];
+    available_in_pantry: { name: string; quantity: number; unit: string }[];
+  }> {
+    return apiFetch<{
+      success: boolean;
+      recipe_plan_id: string;
+      added_to_grocery_list: { name: string; quantity: number; unit: string; reason: string }[];
+      available_in_pantry: { name: string; quantity: number; unit: string }[];
+    }>("/grocery-list/recipe-match", {
+      method: "POST",
+      body: JSON.stringify(recipe)
+    });
+  },
+
+  /**
+   * Simulates/previews building the Instamart cart based on unpurchased items.
+   */
+  async getCartPreview(): Promise<CartPreview> {
+    return apiFetch<CartPreview>("/grocery-list/cart-preview", {
+      method: "POST"
     });
   },
 };

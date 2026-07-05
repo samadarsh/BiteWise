@@ -40,7 +40,7 @@ class UserProfile(Base):
     dislikes = Column(JSON, default=list, nullable=False)
     favorite_cuisines = Column(JSON, default=list, nullable=False)
     fitness_goal = Column(String, default="maintenance", nullable=False)
-    
+
     # Biometric extensions
     age = Column(Integer, nullable=True)
     gender = Column(String, nullable=True)
@@ -132,3 +132,9 @@ class NutritionEntry(Base):
 
     user = relationship("User")
     order_session = relationship("OrderSession")
+
+
+# Import household, pantry, and grocery models to register them on Base metadata
+from backend.household.models import Household, HouseholdMember
+from backend.pantry.models import PantryItem
+from backend.grocery.models import GroceryList, GroceryListItem, RecipePlan, InstamartCartSession
