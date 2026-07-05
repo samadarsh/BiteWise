@@ -690,28 +690,30 @@ export default function NutriOrderDashboard() {
         </main>
       ) : placedOrderId ? (
         // Tracking View
-        <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8">
-          <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-2xl p-8 shadow-xl flex flex-col gap-8">
-            <div className="flex justify-between items-start border-b border-slate-800 pb-6">
+        <main className="flex-1 max-w-4xl w-full mx-auto px-3 sm:px-4 py-4 sm:py-8">
+          <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-2xl p-4 sm:p-8 shadow-xl flex flex-col gap-5 sm:gap-8">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 border-b border-slate-800 pb-4 sm:pb-6">
               <div>
-                <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+                <span className="text-[10px] sm:text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full uppercase tracking-wider">
                   Order Dispatching
                 </span>
-                <h2 className="text-2xl font-bold mt-2">Tracking {placedOrderId}</h2>
-                <p className="text-xs text-slate-500 mt-1 font-mono">Status: {sessionStatus}</p>
+                <h2 className="text-lg sm:text-2xl font-bold mt-2">Tracking {placedOrderId}</h2>
+                <p className="text-[10px] sm:text-xs text-slate-500 mt-1 font-mono">Status: {sessionStatus}</p>
               </div>
-              <div className="text-right">
-                <p className="text-xs text-slate-400">Estimated Delivery Time</p>
-                <p className="text-2xl font-bold text-emerald-400">{selectedMeal?.eta || "25 mins"}</p>
+              <div className="sm:text-right">
+                <p className="text-[10px] sm:text-xs text-slate-400">Estimated Delivery Time</p>
+                <p className="text-xl sm:text-2xl font-bold text-emerald-400">{selectedMeal?.eta || "25 mins"}</p>
               </div>
             </div>
 
             {/* Stepper tracking progress bar */}
-            <div className="relative flex justify-between items-center max-w-2xl mx-auto w-full my-4">
-              <div className="absolute left-0 right-0 top-1/2 h-1 bg-slate-800 -translate-y-1/2 -z-10" />
+            <div className="relative flex justify-between items-start w-full my-2 sm:my-4 px-2 sm:px-8 overflow-visible">
+              {/* Background track */}
+              <div className="absolute left-2 right-2 sm:left-8 sm:right-8 top-4 h-1 bg-slate-800 rounded-full" />
+              {/* Active progress */}
               <div
-                className="absolute left-0 top-1/2 h-1 bg-emerald-500 -translate-y-1/2 -z-10 transition-all duration-1000"
-                style={{ width: `${(trackingStep / 3) * 100}%` }}
+                className="absolute left-2 sm:left-8 top-4 h-1 bg-emerald-500 rounded-full transition-all duration-1000"
+                style={{ width: `calc(${(trackingStep / 3) * 100}% * (1 - 16px / 100%))` }}
               />
 
               {[
@@ -721,52 +723,61 @@ export default function NutriOrderDashboard() {
                 { label: "Arriving", desc: "Staging Arrival" }
               ].map((step, idx) => {
                 const active = trackingStep >= idx;
+                const isCurrent = trackingStep === idx && trackingStep < 3;
                 return (
-                  <div key={idx} className="flex flex-col items-center text-center">
-                    <div className={`h-8 w-8 rounded-full flex items-center justify-center font-bold text-xs border transition duration-500 ${
+                  <div key={idx} className="flex flex-col items-center text-center relative z-10" style={{ flex: "1 1 0%" }}>
+                    <div className={`h-7 w-7 sm:h-9 sm:w-9 rounded-full flex items-center justify-center font-bold text-[10px] sm:text-xs border-2 transition-all duration-500 ${
                       active
-                        ? "bg-emerald-500 border-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20"
-                        : "bg-slate-950 border-slate-880 text-slate-600"
-                    }`}>
-                      {idx + 1}
+                        ? "bg-emerald-500 border-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/30"
+                        : "bg-slate-900 border-slate-700 text-slate-600"
+                    } ${isCurrent ? "ring-2 ring-emerald-500/30 ring-offset-2 ring-offset-slate-900" : ""}`}>
+                      {active && trackingStep > idx ? (
+                        <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : isCurrent ? (
+                        <div className="h-2 w-2 sm:h-2.5 sm:w-2.5 bg-slate-950 rounded-full animate-pulse" />
+                      ) : (
+                        idx + 1
+                      )}
                     </div>
-                    <p className={`text-xs font-semibold mt-2 ${active ? "text-slate-200" : "text-slate-600"}`}>{step.label}</p>
-                    <p className="text-[10px] text-slate-500 max-w-[100px] mt-0.5">{step.desc}</p>
+                    <p className={`text-[10px] sm:text-xs font-semibold mt-1.5 sm:mt-2 ${active ? "text-slate-200" : "text-slate-600"}`}>{step.label}</p>
+                    <p className="text-[8px] sm:text-[10px] text-slate-500 max-w-[70px] sm:max-w-[100px] mt-0.5 leading-tight hidden sm:block">{step.desc}</p>
                   </div>
                 );
               })}
             </div>
 
             {/* Meal summary details */}
-            <div className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-5 flex flex-col gap-4 mt-4">
-              <h3 className="text-sm font-bold text-slate-300">Order Summary</h3>
+            <div className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-4 sm:p-5 flex flex-col gap-3 sm:gap-4 mt-2 sm:mt-4">
+              <h3 className="text-xs sm:text-sm font-bold text-slate-300">Order Summary</h3>
               <div className="flex justify-between items-center text-sm border-b border-slate-800/50 pb-3">
                 <div>
-                  <p className="font-semibold text-slate-200">{selectedMeal?.name}</p>
-                  <p className="text-xs text-slate-500">{selectedMeal?.restaurant}</p>
+                  <p className="font-semibold text-slate-200 text-xs sm:text-sm">{selectedMeal?.name}</p>
+                  <p className="text-[10px] sm:text-xs text-slate-500">{selectedMeal?.restaurant}</p>
                 </div>
-                <p className="font-bold text-emerald-400">Rs {selectedMeal?.price}</p>
+                <p className="font-bold text-emerald-400 text-sm sm:text-base">Rs {selectedMeal?.price}</p>
               </div>
 
-              <div className="grid grid-cols-3 gap-4 text-center">
-                <div className="bg-slate-900 border border-slate-800/50 rounded-lg p-2.5">
-                  <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Macros Met</p>
-                  <p className="text-sm font-bold text-slate-300 mt-1">100% Correct</p>
+              <div className="grid grid-cols-3 gap-2 sm:gap-4 text-center">
+                <div className="bg-slate-900 border border-slate-800/50 rounded-lg p-2 sm:p-2.5">
+                  <p className="text-[8px] sm:text-[10px] text-slate-500 uppercase font-bold tracking-wider">Macros Met</p>
+                  <p className="text-xs sm:text-sm font-bold text-slate-300 mt-0.5 sm:mt-1">100% Correct</p>
                 </div>
-                <div className="bg-slate-900 border border-slate-800/50 rounded-lg p-2.5">
-                  <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Protein Total</p>
-                  <p className="text-sm font-bold text-emerald-400 mt-1">{selectedMeal?.protein}</p>
+                <div className="bg-slate-900 border border-slate-800/50 rounded-lg p-2 sm:p-2.5">
+                  <p className="text-[8px] sm:text-[10px] text-slate-500 uppercase font-bold tracking-wider">Protein Total</p>
+                  <p className="text-xs sm:text-sm font-bold text-emerald-400 mt-0.5 sm:mt-1">{selectedMeal?.protein}</p>
                 </div>
-                <div className="bg-slate-900 border border-slate-800/50 rounded-lg p-2.5">
-                  <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Calories</p>
-                  <p className="text-sm font-bold text-blue-400 mt-1">{selectedMeal?.calories}</p>
+                <div className="bg-slate-900 border border-slate-800/50 rounded-lg p-2 sm:p-2.5">
+                  <p className="text-[8px] sm:text-[10px] text-slate-500 uppercase font-bold tracking-wider">Calories</p>
+                  <p className="text-xs sm:text-sm font-bold text-blue-400 mt-0.5 sm:mt-1">{selectedMeal?.calories}</p>
                 </div>
               </div>
             </div>
 
             <button
               onClick={handleReset}
-              className="mt-6 self-center bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold px-6 py-2.5 rounded-lg text-sm transition"
+              className="mt-2 sm:mt-6 self-center bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold px-5 sm:px-6 py-2.5 rounded-lg text-xs sm:text-sm transition-all"
             >
               Order Something Else
             </button>
