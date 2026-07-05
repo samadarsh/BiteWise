@@ -1,11 +1,8 @@
-streamlit==1.45.1
-python-dotenv==1.0.1
-requests>=2.27.0
-groq>=0.5.0
-openai-whisper>=20231117
 fastapi>=0.100.0
 uvicorn>=0.22.0
 pydantic>=2.0.0
 sqlalchemy>=2.0.0
 cryptography>=41.0.0
-psycopg2-binary>=2.9.9
+python-dotenv>=1.0.1
+requests>=2.27.0
+gunicorn>=21.2.0
