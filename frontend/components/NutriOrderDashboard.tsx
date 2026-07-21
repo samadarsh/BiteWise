@@ -14,6 +14,9 @@ import DemoStoryBanner from "../components/DemoStoryBanner";
 import AlertBanner from "../components/AlertBanner";
 import LoadingSkeleton from "../components/LoadingSkeleton";
 import HouseholdDashboard from "./household/HouseholdDashboard";
+import { UserMenuHeader } from "./UserMenuHeader";
+import { SwiggyConnectionCard } from "./SwiggyConnectionCard";
+import { useAuth } from "../lib/auth-context";
 
 interface SwiggyConfigStatus {
   use_mock_mcp: boolean;
@@ -26,8 +29,9 @@ interface SwiggyConfigStatus {
 }
 
 export default function NutriOrderDashboard() {
+  const { user: authUser, isAuthenticated, isSwiggyConnected, openAuthModal, loginAsGuest, connectSwiggy } = useAuth();
+
   // Authentication & Initialization
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<"coach" | "household">("coach");
   const [authLoading, setAuthLoading] = useState<boolean>(false);
   const [initializing, setInitializing] = useState<boolean>(true);
@@ -106,20 +110,19 @@ export default function NutriOrderDashboard() {
 
   const [swiggyStatus, setSwiggyStatus] = useState<SwiggyConfigStatus | null>(null);
 
-  // Check auth session on mount
+  // Load profile fields and addresses when authenticated
   useEffect(() => {
-    async function checkAuth() {
-      try {
-        const prof = await api.getProfile();
-        setIsAuthenticated(true);
-        loadProfileFields(prof);
-        await refreshAddresses();
-      } catch {
-        // Not authenticated
-        setIsAuthenticated(false);
-      } finally {
-        setInitializing(false);
+    async function loadUserData() {
+      if (isAuthenticated) {
+        try {
+          const prof = await api.getProfile();
+          loadProfileFields(prof);
+          await refreshAddresses();
+        } catch {
+          // Unauthenticated or profile missing
+        }
       }
+      setInitializing(false);
 
       try {
         const status = await api.getSwiggyStatus();
@@ -128,50 +131,8 @@ export default function NutriOrderDashboard() {
         console.error("Failed to load Swiggy config status", err);
       }
     }
-    checkAuth();
-  }, []);
-
-  // Real Swiggy Login handler
-  const handleSwiggyLogin = async () => {
-    setAuthLoading(true);
-    try {
-      const res = await api.startSwiggyOAuth();
-      window.location.href = res.redirect_url;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setAlertType("error"); setAlertMessage(`Swiggy OAuth start failed: ${msg}`);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  // Demo Login handler
-  const handleDemoLogin = async () => {
-    setAuthLoading(true);
-    try {
-      await api.demoLogin();
-      const prof = await api.getProfile();
-      loadProfileFields(prof);
-      await refreshAddresses();
-      setIsAuthenticated(true);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setAlertType("error"); setAlertMessage(`Login failed: ${msg}`);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  // Logout handler
-  const handleLogout = async () => {
-    try {
-      await fetch(`${BASE_URL}/auth/logout`, { method: "POST", credentials: "include" });
-    } catch {
-      // Ignore
-    }
-    setIsAuthenticated(false);
-    handleReset();
-  };
+    loadUserData();
+  }, [isAuthenticated]);
 
   // Sync profile edits to backend DB
   const syncProfileChange = async (
@@ -604,24 +565,7 @@ export default function NutriOrderDashboard() {
             </span>
           </div>
           <div className="flex items-center gap-2 sm:gap-4">
-            {isAuthenticated ? (
-              <div className="flex items-center gap-2 sm:gap-3">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="hidden sm:inline text-xs text-slate-400 font-mono">Demo Session Active</span>
-                <button
-                  onClick={() => setEditingProfile(true)}
-                  className="text-xs text-emerald-400 hover:text-emerald-300 font-medium px-2 py-1 rounded-lg hover:bg-emerald-500/10 transition-all"
-                >
-                  Edit Profile
-                </button>
-                <button
-                  onClick={handleLogout}
-                  className="text-xs text-rose-400 hover:text-rose-300 font-medium px-2 py-1 rounded-lg hover:bg-rose-500/10 transition-all"
-                >
-                  Logout
-                </button>
-              </div>
-            ) : null}
+            <UserMenuHeader />
           </div>
         </div>
       </header>
@@ -642,22 +586,18 @@ export default function NutriOrderDashboard() {
             </p>
 
             <button
-              onClick={handleSwiggyLogin}
-              disabled={authLoading}
-              className="w-full bg-[#f4b544] hover:bg-[#ffd071] text-[#17211c] font-black py-3.5 rounded-xl transition-all duration-200 text-sm sm:text-base shadow-xl hover:shadow-2xl hover:shadow-[#f4b544]/20 flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={openAuthModal}
+              className="w-full bg-[#f4b544] hover:bg-[#ffd071] text-[#17211c] font-black py-3.5 rounded-xl transition-all duration-200 text-sm sm:text-base shadow-xl hover:shadow-2xl hover:shadow-[#f4b544]/20 flex items-center justify-center gap-2"
             >
-              {authLoading ? "Initializing..." : "Continue with Swiggy"}
+              Sign In to BiteWise
             </button>
 
-            {swiggyStatus?.use_mock_mcp !== false && (
-              <button
-                onClick={handleDemoLogin}
-                disabled={authLoading}
-                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3.5 rounded-xl transition-all duration-200 text-sm sm:text-base shadow-xl border border-slate-700 hover:border-slate-600 flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {authLoading ? "Opening Sandbox..." : "Connect Demo Account"}
-              </button>
-            )}
+            <button
+              onClick={loginAsGuest}
+              className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3.5 rounded-xl transition-all duration-200 text-sm sm:text-base shadow-xl border border-slate-700 hover:border-slate-600 flex items-center justify-center gap-2"
+            >
+              Continue as Guest
+            </button>
 
             <Link
               href="/"
@@ -813,6 +753,11 @@ export default function NutriOrderDashboard() {
               onClose={() => setAlertMessage("")}
             />
           )}
+
+          {/* Swiggy Integration Connection Card */}
+          <div className="mb-4">
+            <SwiggyConnectionCard />
+          </div>
 
           {/* Product Switcher Navigation */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-b border-slate-900 pb-4">

@@ -827,3 +827,53 @@ export interface GroupedGroceryResponse {
   total_items: number;
   high_priority_count: number;
 }
+
+export interface BiteWiseUser {
+  id: string;
+  email: string | null;
+  name: string | null;
+  avatar_url: string | null;
+  auth_provider: string;
+  swiggy_connected: boolean;
+  created_at: string | null;
+  profile: UserProfile | null;
+}
+
+export interface AuthStatusResponse {
+  authenticated: boolean;
+  user: BiteWiseUser | null;
+}
+
+export interface GoogleLoginPayload {
+  id_token?: string;
+  email?: string;
+  name?: string;
+  avatar_url?: string;
+}
+
+export async function fetchAuthStatus(): Promise<AuthStatusResponse> {
+  return apiFetch<AuthStatusResponse>("/auth/me");
+}
+
+export async function loginWithGoogleApi(payload: GoogleLoginPayload): Promise<{ success: boolean; user: BiteWiseUser }> {
+  return apiFetch<{ success: boolean; user: BiteWiseUser }>("/auth/google", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function loginAsGuestApi(): Promise<{ success: boolean; user_id: string; auth_provider: string }> {
+  return apiFetch<{ success: boolean; user_id: string; auth_provider: string }>("/auth/guest", {
+    method: "POST",
+  });
+}
+
+export async function logoutApi(): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>("/auth/logout", {
+    method: "POST",
+  });
+}
+
+export async function startSwiggyOAuthApi(): Promise<{ code_challenge: string; redirect_url: string }> {
+  return apiFetch<{ code_challenge: string; redirect_url: string }>("/auth/swiggy/start");
+}
