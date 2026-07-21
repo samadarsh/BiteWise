@@ -1,26 +1,31 @@
 """
-Household Intelligence Engines — Sprint 11
+Household Intelligence Engines — Sprint 14
 
 Deterministic, rule-based intelligence layer.
 No LLM calls. No real Instamart mutations. Fully testable.
+
+Updated for qualitative stock levels (full/half/low/empty).
 """
 import secrets
+import datetime
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 
 from backend.household.models import Household, HouseholdMember
 from backend.pantry.models import PantryItem
 from backend.grocery.models import GroceryList, GroceryListItem
+from backend.pantry.templates import get_category_default_expiry_days
 
 
 # ──────────────────────────────────────────────
-# Seeded Recipe Templates
+# Seeded Recipe Templates (30+ recipes)
 # ──────────────────────────────────────────────
 
 RECIPE_TEMPLATES: List[Dict[str, Any]] = [
+    # ── Non-Veg Dinner ──
     {
         "name": "Butter Chicken",
-        "tag": "Quick dinner from pantry",
+        "tag": "Rich dinner",
         "diet": "non-veg",
         "allergens": [],
         "ingredients": [
@@ -32,17 +37,32 @@ RECIPE_TEMPLATES: List[Dict[str, Any]] = [
         ],
     },
     {
-        "name": "Paneer Fried Rice",
-        "tag": "Quick dinner from pantry",
-        "diet": "veg",
+        "name": "Chicken Fried Rice",
+        "tag": "Quick dinner",
+        "diet": "non-veg",
         "allergens": [],
         "ingredients": [
             {"name": "rice", "qty": 0.3, "unit": "kg"},
-            {"name": "paneer", "qty": 0.2, "unit": "kg"},
+            {"name": "chicken", "qty": 0.3, "unit": "kg"},
             {"name": "onion", "qty": 0.1, "unit": "kg"},
-            {"name": "oil", "qty": 0.05, "unit": "L"},
+            {"name": "oil", "qty": 0.03, "unit": "L"},
+            {"name": "green chilli", "qty": 2.0, "unit": "unit"},
         ],
     },
+    {
+        "name": "Chicken Curry",
+        "tag": "Classic dinner",
+        "diet": "non-veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "chicken", "qty": 0.5, "unit": "kg"},
+            {"name": "onion", "qty": 0.2, "unit": "kg"},
+            {"name": "tomato", "qty": 0.2, "unit": "kg"},
+            {"name": "oil", "qty": 0.03, "unit": "L"},
+            {"name": "garam masala", "qty": 0.01, "unit": "kg"},
+        ],
+    },
+    # ── Egg Dishes ──
     {
         "name": "High-Protein Egg Bhurji",
         "tag": "High-protein breakfast",
@@ -53,54 +73,6 @@ RECIPE_TEMPLATES: List[Dict[str, Any]] = [
             {"name": "onion", "qty": 0.1, "unit": "kg"},
             {"name": "tomato", "qty": 0.1, "unit": "kg"},
             {"name": "oil", "qty": 0.02, "unit": "L"},
-        ],
-    },
-    {
-        "name": "Dal Tadka",
-        "tag": "Quick dinner from pantry",
-        "diet": "veg",
-        "allergens": [],
-        "ingredients": [
-            {"name": "toor dal", "qty": 0.2, "unit": "kg"},
-            {"name": "onion", "qty": 0.1, "unit": "kg"},
-            {"name": "tomato", "qty": 0.1, "unit": "kg"},
-            {"name": "ghee", "qty": 0.03, "unit": "kg"},
-        ],
-    },
-    {
-        "name": "Paneer Butter Masala",
-        "tag": "Quick dinner from pantry",
-        "diet": "veg",
-        "allergens": [],
-        "ingredients": [
-            {"name": "paneer", "qty": 0.25, "unit": "kg"},
-            {"name": "butter", "qty": 0.05, "unit": "kg"},
-            {"name": "tomato", "qty": 0.2, "unit": "kg"},
-            {"name": "cream", "qty": 0.05, "unit": "L"},
-            {"name": "onion", "qty": 0.1, "unit": "kg"},
-        ],
-    },
-    {
-        "name": "Curd Rice",
-        "tag": "Quick dinner from pantry",
-        "diet": "veg",
-        "allergens": [],
-        "ingredients": [
-            {"name": "rice", "qty": 0.2, "unit": "kg"},
-            {"name": "curd", "qty": 0.3, "unit": "kg"},
-            {"name": "mustard seeds", "qty": 0.01, "unit": "kg"},
-        ],
-    },
-    {
-        "name": "Lemon Rice",
-        "tag": "Quick dinner from pantry",
-        "diet": "veg",
-        "allergens": ["peanuts"],
-        "ingredients": [
-            {"name": "rice", "qty": 0.2, "unit": "kg"},
-            {"name": "lemon", "qty": 2.0, "unit": "unit"},
-            {"name": "oil", "qty": 0.03, "unit": "L"},
-            {"name": "peanuts", "qty": 0.05, "unit": "kg"},
         ],
     },
     {
@@ -115,8 +87,144 @@ RECIPE_TEMPLATES: List[Dict[str, Any]] = [
         ],
     },
     {
+        "name": "Egg Fried Rice",
+        "tag": "Quick dinner",
+        "diet": "non-veg",
+        "allergens": ["eggs"],
+        "ingredients": [
+            {"name": "rice", "qty": 0.3, "unit": "kg"},
+            {"name": "eggs", "qty": 3.0, "unit": "unit"},
+            {"name": "onion", "qty": 0.1, "unit": "kg"},
+            {"name": "oil", "qty": 0.03, "unit": "L"},
+        ],
+    },
+    # ── Veg Rice Dishes ──
+    {
+        "name": "Paneer Fried Rice",
+        "tag": "Quick dinner",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "rice", "qty": 0.3, "unit": "kg"},
+            {"name": "paneer", "qty": 0.2, "unit": "kg"},
+            {"name": "onion", "qty": 0.1, "unit": "kg"},
+            {"name": "oil", "qty": 0.05, "unit": "L"},
+        ],
+    },
+    {
+        "name": "Curd Rice",
+        "tag": "Comfort food",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "rice", "qty": 0.2, "unit": "kg"},
+            {"name": "curd", "qty": 0.3, "unit": "kg"},
+            {"name": "mustard seeds", "qty": 0.01, "unit": "kg"},
+        ],
+    },
+    {
+        "name": "Lemon Rice",
+        "tag": "Quick lunch",
+        "diet": "veg",
+        "allergens": ["peanuts"],
+        "ingredients": [
+            {"name": "rice", "qty": 0.2, "unit": "kg"},
+            {"name": "lemon", "qty": 2.0, "unit": "unit"},
+            {"name": "oil", "qty": 0.03, "unit": "L"},
+            {"name": "peanuts", "qty": 0.05, "unit": "kg"},
+        ],
+    },
+    {
+        "name": "Jeera Rice",
+        "tag": "Side dish",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "rice", "qty": 0.3, "unit": "kg"},
+            {"name": "cumin", "qty": 0.01, "unit": "kg"},
+            {"name": "ghee", "qty": 0.02, "unit": "kg"},
+        ],
+    },
+    {
+        "name": "Veg Pulao",
+        "tag": "One-pot meal",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "rice", "qty": 0.3, "unit": "kg"},
+            {"name": "onion", "qty": 0.1, "unit": "kg"},
+            {"name": "carrot", "qty": 0.1, "unit": "kg"},
+            {"name": "capsicum", "qty": 0.1, "unit": "kg"},
+            {"name": "ghee", "qty": 0.02, "unit": "kg"},
+        ],
+    },
+    {
+        "name": "Khichdi",
+        "tag": "Comfort food",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "rice", "qty": 0.2, "unit": "kg"},
+            {"name": "moong dal", "qty": 0.1, "unit": "kg"},
+            {"name": "ghee", "qty": 0.02, "unit": "kg"},
+            {"name": "turmeric", "qty": 0.005, "unit": "kg"},
+        ],
+    },
+    # ── Dals ──
+    {
+        "name": "Dal Tadka",
+        "tag": "Classic dinner",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "toor dal", "qty": 0.2, "unit": "kg"},
+            {"name": "onion", "qty": 0.1, "unit": "kg"},
+            {"name": "tomato", "qty": 0.1, "unit": "kg"},
+            {"name": "ghee", "qty": 0.03, "unit": "kg"},
+        ],
+    },
+    {
+        "name": "Dal Fry",
+        "tag": "Classic dinner",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "toor dal", "qty": 0.2, "unit": "kg"},
+            {"name": "onion", "qty": 0.15, "unit": "kg"},
+            {"name": "tomato", "qty": 0.15, "unit": "kg"},
+            {"name": "oil", "qty": 0.03, "unit": "L"},
+            {"name": "cumin", "qty": 0.005, "unit": "kg"},
+        ],
+    },
+    {
+        "name": "Palak Dal",
+        "tag": "Healthy dinner",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "toor dal", "qty": 0.2, "unit": "kg"},
+            {"name": "spinach", "qty": 0.2, "unit": "kg"},
+            {"name": "onion", "qty": 0.1, "unit": "kg"},
+            {"name": "garlic", "qty": 0.02, "unit": "kg"},
+        ],
+    },
+    # ── Sabzi / Curries ──
+    {
+        "name": "Paneer Butter Masala",
+        "tag": "Rich dinner",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "paneer", "qty": 0.25, "unit": "kg"},
+            {"name": "butter", "qty": 0.05, "unit": "kg"},
+            {"name": "tomato", "qty": 0.2, "unit": "kg"},
+            {"name": "cream", "qty": 0.05, "unit": "L"},
+            {"name": "onion", "qty": 0.1, "unit": "kg"},
+        ],
+    },
+    {
         "name": "Aloo Gobi",
-        "tag": "Quick dinner from pantry",
+        "tag": "Classic sabzi",
         "diet": "veg",
         "allergens": [],
         "ingredients": [
@@ -124,6 +232,70 @@ RECIPE_TEMPLATES: List[Dict[str, Any]] = [
             {"name": "cauliflower", "qty": 0.3, "unit": "kg"},
             {"name": "onion", "qty": 0.1, "unit": "kg"},
             {"name": "oil", "qty": 0.03, "unit": "L"},
+        ],
+    },
+    {
+        "name": "Aloo Paratha",
+        "tag": "Hearty breakfast",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "atta", "qty": 0.2, "unit": "kg"},
+            {"name": "potato", "qty": 0.3, "unit": "kg"},
+            {"name": "oil", "qty": 0.03, "unit": "L"},
+            {"name": "green chilli", "qty": 2.0, "unit": "unit"},
+        ],
+    },
+    {
+        "name": "Soya Chunks Curry",
+        "tag": "High-protein veg",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "soya chunks", "qty": 0.15, "unit": "kg"},
+            {"name": "onion", "qty": 0.15, "unit": "kg"},
+            {"name": "tomato", "qty": 0.15, "unit": "kg"},
+            {"name": "oil", "qty": 0.03, "unit": "L"},
+            {"name": "garam masala", "qty": 0.005, "unit": "kg"},
+        ],
+    },
+    {
+        "name": "Tofu Stir-Fry",
+        "tag": "High-protein veg",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "tofu", "qty": 0.2, "unit": "kg"},
+            {"name": "capsicum", "qty": 0.1, "unit": "kg"},
+            {"name": "onion", "qty": 0.1, "unit": "kg"},
+            {"name": "oil", "qty": 0.03, "unit": "L"},
+        ],
+    },
+    # ── Breakfast ──
+    {
+        "name": "Poha",
+        "tag": "Quick breakfast",
+        "diet": "veg",
+        "allergens": ["peanuts"],
+        "ingredients": [
+            {"name": "poha", "qty": 0.15, "unit": "kg"},
+            {"name": "onion", "qty": 0.1, "unit": "kg"},
+            {"name": "peanuts", "qty": 0.03, "unit": "kg"},
+            {"name": "oil", "qty": 0.02, "unit": "L"},
+            {"name": "mustard seeds", "qty": 0.005, "unit": "kg"},
+        ],
+    },
+    {
+        "name": "Upma",
+        "tag": "Quick breakfast",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "atta", "qty": 0.15, "unit": "kg"},
+            {"name": "onion", "qty": 0.1, "unit": "kg"},
+            {"name": "green chilli", "qty": 2.0, "unit": "unit"},
+            {"name": "oil", "qty": 0.02, "unit": "L"},
+            {"name": "mustard seeds", "qty": 0.005, "unit": "kg"},
         ],
     },
     {
@@ -138,6 +310,93 @@ RECIPE_TEMPLATES: List[Dict[str, Any]] = [
             {"name": "peanut butter", "qty": 0.02, "unit": "kg"},
         ],
     },
+    # ── Quick Meals ──
+    {
+        "name": "Maggi Noodles",
+        "tag": "Quick snack",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "onion", "qty": 0.05, "unit": "kg"},
+            {"name": "tomato", "qty": 0.05, "unit": "kg"},
+            {"name": "green chilli", "qty": 1.0, "unit": "unit"},
+        ],
+    },
+    {
+        "name": "Cheese Sandwich",
+        "tag": "Quick snack",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "bread", "qty": 4.0, "unit": "unit"},
+            {"name": "cheese", "qty": 0.05, "unit": "kg"},
+            {"name": "butter", "qty": 0.02, "unit": "kg"},
+            {"name": "tomato", "qty": 0.1, "unit": "kg"},
+        ],
+    },
+    # ── South Indian ──
+    {
+        "name": "Sambar",
+        "tag": "South Indian staple",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "toor dal", "qty": 0.15, "unit": "kg"},
+            {"name": "onion", "qty": 0.1, "unit": "kg"},
+            {"name": "tomato", "qty": 0.1, "unit": "kg"},
+            {"name": "carrot", "qty": 0.05, "unit": "kg"},
+        ],
+    },
+    {
+        "name": "Rasam",
+        "tag": "South Indian staple",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "tomato", "qty": 0.2, "unit": "kg"},
+            {"name": "toor dal", "qty": 0.05, "unit": "kg"},
+            {"name": "cumin", "qty": 0.005, "unit": "kg"},
+            {"name": "garlic", "qty": 0.01, "unit": "kg"},
+        ],
+    },
+    # ── Fish ──
+    {
+        "name": "Fish Curry",
+        "tag": "Coastal dinner",
+        "diet": "non-veg",
+        "allergens": ["fish"],
+        "ingredients": [
+            {"name": "fish", "qty": 0.4, "unit": "kg"},
+            {"name": "onion", "qty": 0.15, "unit": "kg"},
+            {"name": "tomato", "qty": 0.15, "unit": "kg"},
+            {"name": "oil", "qty": 0.03, "unit": "L"},
+            {"name": "turmeric", "qty": 0.005, "unit": "kg"},
+        ],
+    },
+    # ── Roti ──
+    {
+        "name": "Plain Roti",
+        "tag": "Side bread",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "atta", "qty": 0.2, "unit": "kg"},
+            {"name": "oil", "qty": 0.01, "unit": "L"},
+        ],
+    },
+    {
+        "name": "Pasta Arrabiata",
+        "tag": "Quick dinner",
+        "diet": "veg",
+        "allergens": [],
+        "ingredients": [
+            {"name": "onion", "qty": 0.1, "unit": "kg"},
+            {"name": "tomato", "qty": 0.3, "unit": "kg"},
+            {"name": "garlic", "qty": 0.02, "unit": "kg"},
+            {"name": "oil", "qty": 0.03, "unit": "L"},
+            {"name": "chilli powder", "qty": 0.005, "unit": "kg"},
+        ],
+    },
 ]
 
 
@@ -147,11 +406,13 @@ RECIPE_TEMPLATES: List[Dict[str, Any]] = [
 
 CATEGORY_KEYWORDS: Dict[str, List[str]] = {
     "Dairy": ["milk", "curd", "yogurt", "butter", "ghee", "paneer", "cheese", "cream"],
-    "Eggs & Meat": ["egg", "chicken", "mutton", "fish", "prawns"],
-    "Fruits & Vegetables": ["tomato", "onion", "potato", "spinach", "lemon", "cauliflower",
-                            "palak", "banana", "green chilli", "ginger", "garlic"],
+    "Proteins": ["egg", "chicken", "mutton", "fish", "prawns", "tofu", "soya"],
+    "Vegetables": ["tomato", "onion", "potato", "spinach", "lemon", "cauliflower",
+                    "palak", "banana", "green chilli", "ginger", "garlic", "capsicum", "carrot"],
     "Staples": ["rice", "dal", "atta", "wheat", "oil", "sugar", "salt", "oats",
-                "mustard seeds", "peanuts", "peanut butter", "toor dal"],
+                "mustard seeds", "peanuts", "peanut butter", "toor dal", "moong dal",
+                "poha", "maida"],
+    "Spices": ["turmeric", "cumin", "chilli powder", "garam masala", "coriander powder"],
     "Bakery": ["bread", "pav", "bun"],
 }
 
@@ -167,6 +428,20 @@ def _classify_item(item_name: str) -> str:
 
 
 # ──────────────────────────────────────────────
+# Expiry Helper
+# ──────────────────────────────────────────────
+
+def get_effective_expiry(item: PantryItem) -> Optional[datetime.date]:
+    """Returns effective expiry: manual date if set, otherwise category default from added_at."""
+    if item.expiry_date:
+        return item.expiry_date
+    default_days = get_category_default_expiry_days(item.category)
+    if default_days and item.added_at:
+        return (item.added_at + datetime.timedelta(days=default_days)).date()
+    return None
+
+
+# ──────────────────────────────────────────────
 # Engine 1: Low-Stock Detection
 # ──────────────────────────────────────────────
 
@@ -176,8 +451,8 @@ def detect_low_stock(
     auto_add_to_grocery: bool = True,
 ) -> Dict[str, Any]:
     """
-    Scans pantry for items below their min_threshold.
-    Optionally auto-adds out-of-stock items to the grocery list.
+    Scans pantry for items with stock_level of 'low' or 'empty'.
+    Optionally auto-adds empty items to the grocery list.
     """
     pantry_items = db.query(PantryItem).filter(
         PantryItem.household_id == household_id
@@ -187,24 +462,17 @@ def detect_low_stock(
     auto_added: List[str] = []
 
     for item in pantry_items:
-        threshold = item.min_threshold
-        if threshold is None or threshold <= 0:
-            continue
-
-        if item.quantity <= 0:
+        if item.stock_level == "empty":
             severity = "out_of_stock"
-        elif item.quantity < threshold:
+        elif item.stock_level == "low":
             severity = "low"
         else:
-            continue  # healthy stock
+            continue  # full or half — healthy stock
 
-        deficit = max(0.0, threshold - item.quantity)
         alerts.append({
             "item_name": item.item_name,
-            "current_qty": item.quantity,
-            "unit": item.unit,
-            "min_threshold": threshold,
-            "deficit": round(deficit, 2),
+            "stock_level": item.stock_level,
+            "category": item.category,
             "severity": severity,
         })
 
@@ -228,8 +496,8 @@ def detect_low_stock(
                         id=item_id,
                         grocery_list_id=active_list.id,
                         item_name=alert["item_name"],
-                        quantity=alert["deficit"],
-                        unit=alert["unit"],
+                        quantity=1.0,
+                        unit="pack",
                         is_purchased=False,
                     ))
                     auto_added.append(alert["item_name"])
@@ -257,14 +525,22 @@ def suggest_cookable_recipes(
     """
     Matches pantry stock against seeded recipe templates.
     Filters by household dietary constraints. Sorted by coverage descending.
+    Boosts recipes that use expiring items.
     """
-    # 1. Build pantry snapshot (name → qty)
+    # 1. Build pantry snapshot (name → stock_level)
     pantry_items = db.query(PantryItem).filter(
         PantryItem.household_id == household_id
     ).all()
-    pantry_map: Dict[str, float] = {}
+    pantry_map: Dict[str, str] = {}
+    expiring_items: set = set()
+
+    today = datetime.datetime.utcnow().date()
     for pi in pantry_items:
-        pantry_map[pi.item_name.lower().strip()] = pi.quantity
+        pantry_map[pi.item_name.lower().strip()] = pi.stock_level
+        # Check if item is expiring within 2 days
+        effective_expiry = get_effective_expiry(pi)
+        if effective_expiry and (effective_expiry - today).days <= 2:
+            expiring_items.add(pi.item_name.lower().strip())
 
     # 2. Gather household dietary constraints
     members = db.query(HouseholdMember).filter(
@@ -287,7 +563,7 @@ def suggest_cookable_recipes(
     skipped: List[Dict[str, str]] = []
 
     for recipe in RECIPE_TEMPLATES:
-        # Dietary filter: skip non-veg if any member is vegetarian
+        # Dietary filter
         if has_vegetarian and recipe["diet"] == "non-veg":
             skipped.append({
                 "recipe": recipe["name"],
@@ -305,24 +581,27 @@ def suggest_cookable_recipes(
             })
             continue
 
-        # Coverage calculation
+        # Coverage calculation with qualitative levels
         total_ingredients = len(recipe["ingredients"])
-        matched = 0
+        matched = 0.0
         missing_items: List[Dict[str, Any]] = []
+        uses_expiring = False
 
         for ing in recipe["ingredients"]:
             ing_name = ing["name"].lower().strip()
-            pantry_qty = pantry_map.get(ing_name, 0.0)
-            if pantry_qty >= ing["qty"]:
-                matched += 1
+            stock = pantry_map.get(ing_name, "empty")
+
+            if ing_name in expiring_items:
+                uses_expiring = True
+
+            if stock in ("full", "half"):
+                matched += 1.0
+            elif stock == "low":
+                matched += 0.5  # partial match
             else:
-                deficit = round(ing["qty"] - pantry_qty, 2)
                 missing_items.append({
                     "name": ing["name"],
-                    "needed": ing["qty"],
-                    "have": pantry_qty,
-                    "deficit": deficit,
-                    "unit": ing["unit"],
+                    "stock_level": stock,
                 })
 
         coverage_pct = round((matched / total_ingredients) * 100, 1) if total_ingredients > 0 else 0.0
@@ -333,13 +612,14 @@ def suggest_cookable_recipes(
             "diet": recipe["diet"],
             "coverage_pct": coverage_pct,
             "total_ingredients": total_ingredients,
-            "matched_ingredients": matched,
+            "matched_ingredients": int(matched),
             "missing_items": missing_items,
-            "can_cook_now": coverage_pct == 100.0,
+            "can_cook_now": coverage_pct >= 100.0,
+            "uses_expiring_items": uses_expiring,
         })
 
-    # Sort by coverage descending
-    suggestions.sort(key=lambda x: x["coverage_pct"], reverse=True)
+    # Sort: expiring-item recipes first, then by coverage descending
+    suggestions.sort(key=lambda x: (-int(x["uses_expiring_items"]), -x["coverage_pct"]))
 
     return {
         "suggestions": suggestions,
@@ -430,13 +710,11 @@ def group_grocery_items(
     """
     Groups unpurchased grocery items by category and assigns priority scores.
     """
-    from backend.grocery.models import GroceryList as GL, GroceryListItem as GLI
-
     active_list = _get_or_create_grocery_list(db, household_id)
 
-    unpurchased = db.query(GLI).filter(
-        GLI.grocery_list_id == active_list.id,
-        GLI.is_purchased == False
+    unpurchased = db.query(GroceryListItem).filter(
+        GroceryListItem.grocery_list_id == active_list.id,
+        GroceryListItem.is_purchased == False
     ).all()
 
     if not unpurchased:
@@ -452,12 +730,11 @@ def group_grocery_items(
     ).all()
     low_stock_names: set = set()
     for pi in pantry_items:
-        if pi.min_threshold and pi.min_threshold > 0 and pi.quantity < pi.min_threshold:
+        if pi.stock_level in ("low", "empty"):
             low_stock_names.add(pi.item_name.lower().strip())
 
     # Group items
     from collections import defaultdict
-    import datetime
 
     groups_map: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     group_priorities: Dict[str, int] = defaultdict(int)

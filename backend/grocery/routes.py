@@ -233,10 +233,9 @@ async def match_recipe_ingredients(
         name_clean = ing.name.lower().strip()
         pantry_item = pantry_map.get(name_clean)
         
-        current_qty = pantry_item.quantity if pantry_item else 0.0
-        missing_qty = ing.qty - current_qty
+        has_stock = pantry_item and pantry_item.stock_level in ("full", "half")
         
-        if missing_qty > 0:
+        if not has_stock:
             # Check if already in grocery list
             list_item = db.query(GroceryListItem).filter(
                 GroceryListItem.grocery_list_id == active_list.id,
@@ -251,32 +250,29 @@ async def match_recipe_ingredients(
                     id=item_id,
                     grocery_list_id=active_list.id,
                     item_name=ing.name,
-                    quantity=missing_qty,
-                    unit=ing.unit,
+                    quantity=1.0,
+                    unit="pack",
                     is_purchased=False
                 )
                 db.add(list_item)
                 added_items.append({
                     "name": ing.name,
-                    "quantity": missing_qty,
-                    "unit": ing.unit,
-                    "reason": f"Needed {ing.qty}, only {current_qty} in pantry."
+                    "quantity": 1.0,
+                    "unit": "pack",
+                    "reason": f"Stock level is '{pantry_item.stock_level if pantry_item else 'empty'}' in pantry."
                 })
             else:
-                # Update quantity if list has less than needed
-                if list_item.quantity < missing_qty:
-                    list_item.quantity = missing_qty
                 added_items.append({
                     "name": ing.name,
                     "quantity": list_item.quantity,
-                    "unit": ing.unit,
-                    "reason": f"Already on shopping list, updated quantity."
+                    "unit": list_item.unit,
+                    "reason": "Already on shopping list."
                 })
         else:
             available_items.append({
                 "name": ing.name,
-                "quantity": current_qty,
-                "unit": ing.unit
+                "quantity": 1.0,
+                "unit": "pack"
             })
             
     db.commit()

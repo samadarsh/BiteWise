@@ -1,5 +1,6 @@
 import os
 import secrets
+import datetime
 from fastapi.testclient import TestClient
 from backend.main import app
 from backend.db.session import SessionLocal
@@ -76,22 +77,21 @@ def test_household_module_flow():
             assert res_del.json()["success"] is True
 
             # 4. Pantry CRUD
-            # Add milk (qty=1.0, min=2.0) -> Low Stock
+            # Add milk (stock_level="low") -> Low Stock
             res_p1 = client.post("/pantry", json={
                 "item_name": "Milk",
-                "quantity": 1.0,
-                "unit": "L",
-                "min_threshold": 2.0
+                "stock_level": "low",
+                "category": "Dairy"
             })
             assert res_p1.status_code == 200
             assert res_p1.json()["item_name"] == "Milk"
+            assert res_p1.json()["stock_level"] == "low"
             
-            # Add eggs (qty=6.0, min=6.0) -> In Stock
+            # Add eggs (stock_level="full") -> In Stock
             res_p2 = client.post("/pantry", json={
                 "item_name": "Eggs",
-                "quantity": 6.0,
-                "unit": "unit",
-                "min_threshold": 6.0
+                "stock_level": "full",
+                "category": "Proteins"
             })
             assert res_p2.status_code == 200
 
@@ -126,9 +126,9 @@ def test_household_module_flow():
 
             # 6. Recipe Missing Ingredient calculations
             # Recipe needs:
-            # - Milk: 2.0 L (Pantry has 1.0 L -> Missing 1.0 L)
-            # - Eggs: 4.0 unit (Pantry has 6.0 unit -> Missing 0.0)
-            # - Lemon: 2.0 unit (Pantry has 0.0 -> Missing 2.0)
+            # - Milk (Pantry has "low" -> Missing)
+            # - Eggs (Pantry has "full" -> Matched)
+            # - Lemon (Pantry has nothing -> Missing)
             res_match = client.post("/grocery-list/recipe-match", json={
                 "recipe_name": "Omelette & Lemonade Combo",
                 "ingredients": [
@@ -145,10 +145,10 @@ def test_household_module_flow():
             # Check added list
             added = {item["name"]: item["quantity"] for item in match_data["added_to_grocery_list"]}
             assert "Milk" in added
-            assert added["Milk"] == 1.0 # 2.0 - 1.0 = 1.0 missing
+            assert added["Milk"] == 1.0 # default qualitative missing quantity
             assert "Lemon" in added
-            assert added["Lemon"] == 2.0 # 2.0 - 0.0 = 2.0 missing
-            assert "Eggs" not in added # Pantry has 6.0, only needed 4.0
+            assert added["Lemon"] == 1.0
+            assert "Eggs" not in added # Pantry is full
 
             # 7. Mock Cart Preview
             res_preview = client.post("/grocery-list/cart-preview")
@@ -156,11 +156,11 @@ def test_household_module_flow():
             preview_data = res_preview.json()
             assert "total_estimated_cost_rupees" in preview_data
             
-            # Checked unpurchased items in list: Milk (needed 1.0), Lemon (needed 2.0). Onion is purchased (True) so skipped.
+            # Checked unpurchased items in list: Milk (needed 1.0 pack), Lemon (needed 1.0 pack). Onion is purchased (True) so skipped.
             # Milk matches Nandini Fresh Milk 1L (Rs 46.0 * 1.0)
-            # Lemon matches Fresh Lemon 4pcs (Rs 20.0 * 2.0)
-            # Expected estimated cost = 46.0 + 40.0 = 86.0 rupees
-            assert preview_data["total_estimated_cost_rupees"] == 86.0
+            # Lemon matches Fresh Lemon 4pcs (Rs 20.0 * 1.0)
+            # Expected estimated cost = 46.0 + 20.0 = 66.0 rupees
+            assert preview_data["total_estimated_cost_rupees"] == 66.0
             assert preview_data["total_items_count"] == 2
 
         # 8. Post-cleanup
@@ -180,7 +180,7 @@ def test_household_module_flow():
 
 
 def test_household_intelligence_flow():
-    """Sprint 11: Tests low-stock detection, cook-today suggestions, insights, and grocery grouping."""
+    """Sprint 11/14: Tests low-stock detection, cook-today suggestions, insights, and grocery grouping."""
 
     test_user_id = "user_test_intel"
 
@@ -219,19 +219,18 @@ def test_household_intelligence_flow():
 
             # Seed pantry with known stock levels
             pantry_seed = [
-                ("Milk", 1.0, "L", 2.0),       # low
-                ("Eggs", 6.0, "unit", 6.0),     # ok
-                ("Rice", 0.0, "kg", 1.0),       # out of stock
-                ("Onion", 2.0, "kg", 1.0),      # ok
-                ("Curd", 0.5, "kg", 1.0),       # low
-                ("Tomato", 0.3, "kg", 0.5),     # low
+                ("Milk", "low", "Dairy"),
+                ("Eggs", "full", "Proteins"),
+                ("Rice", "empty", "Staples"),
+                ("Onion", "full", "Vegetables"),
+                ("Curd", "low", "Dairy"),
+                ("Tomato", "low", "Vegetables"),
             ]
-            for name, qty, unit, threshold in pantry_seed:
+            for name, stock, category in pantry_seed:
                 client.post("/pantry", json={
                     "item_name": name,
-                    "quantity": qty,
-                    "unit": unit,
-                    "min_threshold": threshold,
+                    "stock_level": stock,
+                    "category": category
                 })
 
             # ── Test 1: Low-Stock Detection ──────────────
@@ -266,7 +265,7 @@ def test_household_intelligence_flow():
             skipped_names = [s["recipe"] for s in cook_data["skipped_recipes"]]
             assert "Lemon Rice" in skipped_names
 
-            # Curd Rice should be suggested (we have rice=0 but still appears with coverage < 100)
+            # Curd Rice should be suggested
             assert "Curd Rice" in suggestion_names
 
             # Suggestions should be sorted by coverage descending
@@ -297,7 +296,7 @@ def test_household_intelligence_flow():
 
             # Verify categories exist
             categories = [g["category"] for g in grouped["groups"]]
-            assert "Eggs & Meat" in categories or "Staples" in categories
+            assert "Proteins" in categories or "Staples" in categories
 
         # Post-cleanup
         db.query(RecipePlan).filter(RecipePlan.household_id == household_id).delete()
@@ -311,5 +310,227 @@ def test_household_intelligence_flow():
         db.commit()
 
     finally:
+        db.close()
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+
+def test_quick_stock_onboarding():
+    """Verify that batch onboarding seeds items correctly and auto-allocates default expiry."""
+    test_user_id = "user_test_qs"
+    app.dependency_overrides[get_current_user_id] = lambda: test_user_id
+    db = SessionLocal()
+    try:
+        with TestClient(app) as client:
+            # Auto-provision household
+            client.get("/household/my-home")
+            
+            # Quick stock items
+            res = client.post("/pantry/quick-stock", json={
+                "items": [
+                    {"item_name": "Paneer", "stock_level": "full", "category": "Dairy"},
+                    {"item_name": "Chicken", "stock_level": "full", "category": "Proteins"},
+                    {"item_name": "Rice", "stock_level": "full", "category": "Staples"}
+                ]
+            })
+            assert res.status_code == 200
+            assert res.json()["added_count"] == 3
+
+            # List pantry and check items are present and have default expiry set
+            p_res = client.get("/pantry")
+            pantry_items = {item["item_name"]: item for item in p_res.json()}
+            assert "Paneer" in pantry_items
+            assert pantry_items["Paneer"]["stock_level"] == "full"
+            # Perishables get default expiry (Paneer is Dairy -> 4 days)
+            assert pantry_items["Paneer"]["expiry_date"] is not None
+            
+            # Non-perishables (Rice) do NOT get default expiry
+            assert pantry_items["Rice"]["expiry_date"] is None
+    finally:
+        member = db.query(HouseholdMember).filter(HouseholdMember.user_id == test_user_id).first()
+        if member:
+            hh_id = member.household_id
+            db.query(PantryItem).filter(PantryItem.household_id == hh_id).delete()
+            db.query(HouseholdMember).filter(HouseholdMember.household_id == hh_id).delete()
+            db.query(Household).filter(Household.id == hh_id).delete()
+            db.commit()
+        db.close()
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+
+def test_cook_auto_decrement():
+    """Verify that cooking a recipe decrements corresponding pantry items by one stock tier."""
+    test_user_id = "user_test_cook"
+    app.dependency_overrides[get_current_user_id] = lambda: test_user_id
+    db = SessionLocal()
+    try:
+        with TestClient(app) as client:
+            client.get("/household/my-home")
+            
+            # Seed pantry with full items needed for Paneer Butter Masala
+            # Ingredients: paneer, butter, tomato, cream, onion
+            for item in ["Paneer", "Butter", "Tomato", "Cream", "Onion"]:
+                client.post("/pantry", json={
+                    "item_name": item,
+                    "stock_level": "full",
+                    "category": "Dairy" if item in ["Paneer", "Butter", "Cream"] else "Vegetables"
+                })
+
+            # Cook Paneer Butter Masala
+            cook_res = client.post("/pantry/cook/Paneer Butter Masala")
+            assert cook_res.status_code == 200
+            assert cook_res.json()["success"] is True
+
+            # Verify stock levels decremented to half
+            p_res = client.get("/pantry")
+            pantry_items = {item["item_name"]: item for item in p_res.json()}
+            assert pantry_items["Paneer"]["stock_level"] == "half"
+            assert pantry_items["Butter"]["stock_level"] == "half"
+            assert pantry_items["Tomato"]["stock_level"] == "half"
+    finally:
+        member = db.query(HouseholdMember).filter(HouseholdMember.user_id == test_user_id).first()
+        if member:
+            hh_id = member.household_id
+            db.query(PantryItem).filter(PantryItem.household_id == hh_id).delete()
+            db.query(HouseholdMember).filter(HouseholdMember.household_id == hh_id).delete()
+            db.query(Household).filter(Household.id == hh_id).delete()
+            db.commit()
+        db.close()
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+
+def test_bulk_item_slow_decrement():
+    """Verify that bulk items only decrement their stock tier every 3rd cook action."""
+    test_user_id = "user_test_bulk"
+    app.dependency_overrides[get_current_user_id] = lambda: test_user_id
+    db = SessionLocal()
+    try:
+        with TestClient(app) as client:
+            client.get("/household/my-home")
+            
+            # Oil is is_bulk = True, seeded at full
+            client.post("/pantry", json={
+                "item_name": "Oil",
+                "stock_level": "full",
+                "category": "Spices",
+                "is_bulk": True
+            })
+
+            # Cook fried rice once (uses oil)
+            c1 = client.post("/pantry/cook/Chicken Fried Rice")
+            assert c1.status_code == 200
+            
+            p1 = client.get("/pantry")
+            assert p1.json()[0]["stock_level"] == "full"
+            assert p1.json()[0]["bulk_use_count"] == 1
+
+            # Cook again
+            c2 = client.post("/pantry/cook/Chicken Fried Rice")
+            assert c2.status_code == 200
+            p2 = client.get("/pantry")
+            assert p2.json()[0]["stock_level"] == "full"
+            assert p2.json()[0]["bulk_use_count"] == 2
+
+            # Cook 3rd time -> should decrement to half
+            c3 = client.post("/pantry/cook/Chicken Fried Rice")
+            assert c3.status_code == 200
+            p3 = client.get("/pantry")
+            assert p3.json()[0]["stock_level"] == "half"
+            assert p3.json()[0]["bulk_use_count"] == 3
+    finally:
+        member = db.query(HouseholdMember).filter(HouseholdMember.user_id == test_user_id).first()
+        if member:
+            hh_id = member.household_id
+            db.query(PantryItem).filter(PantryItem.household_id == hh_id).delete()
+            db.query(HouseholdMember).filter(HouseholdMember.household_id == hh_id).delete()
+            db.query(Household).filter(Household.id == hh_id).delete()
+            db.commit()
+        db.close()
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+
+def test_expiring_items():
+    """Verify that expiring items endpoint lists perishable items correctly according to deadlines."""
+    test_user_id = "user_test_expiry"
+    app.dependency_overrides[get_current_user_id] = lambda: test_user_id
+    db = SessionLocal()
+    try:
+        with TestClient(app) as client:
+            client.get("/household/my-home")
+            
+            # Seed Paneer (expiry_date manual: 1 day from now -> urgent)
+            tomorrow = (datetime.datetime.utcnow() + datetime.timedelta(days=1)).date()
+            client.post("/pantry", json={
+                "item_name": "Paneer",
+                "stock_level": "full",
+                "category": "Dairy",
+                "expiry_date": tomorrow.isoformat()
+            })
+
+            # Check expiring endpoint
+            exp_res = client.get("/pantry/expiring?days=2")
+            assert exp_res.status_code == 200
+            data = exp_res.json()
+            assert data["total_count"] == 1
+            assert data["expiring_items"][0]["item_name"] == "Paneer"
+            assert data["expiring_items"][0]["urgency"] == "tomorrow"
+    finally:
+        member = db.query(HouseholdMember).filter(HouseholdMember.user_id == test_user_id).first()
+        if member:
+            hh_id = member.household_id
+            db.query(PantryItem).filter(PantryItem.household_id == hh_id).delete()
+            db.query(HouseholdMember).filter(HouseholdMember.household_id == hh_id).delete()
+            db.query(Household).filter(Household.id == hh_id).delete()
+            db.commit()
+        db.close()
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+
+def test_mark_purchased_restocks_pantry():
+    """Verify that marking items purchased on the grocery list auto-restocks the corresponding pantry items to full."""
+    test_user_id = "user_test_purch"
+    app.dependency_overrides[get_current_user_id] = lambda: test_user_id
+    db = SessionLocal()
+    try:
+        with TestClient(app) as client:
+            client.get("/household/my-home")
+            
+            # Seed Milk at empty
+            client.post("/pantry", json={
+                "item_name": "Milk",
+                "stock_level": "empty",
+                "category": "Dairy"
+            })
+
+            # Trigger low-stock alert to auto-add Milk to grocery list
+            client.get("/household/low-stock")
+
+            # Fetch grocery list to get item ID for Milk
+            gl_res = client.get("/grocery-list")
+            milk_grocery_item = [item for item in gl_res.json()["items"] if item["item_name"] == "Milk"][0]
+            item_id = milk_grocery_item["id"]
+
+            # Restock Milk via mark-purchased
+            res = client.post("/pantry/mark-purchased", json={
+                "item_ids": [item_id]
+            })
+            assert res.status_code == 200
+            assert "Milk" in res.json()["restocked_to_full"]
+
+            # Verify pantry item is now full
+            p_res = client.get("/pantry")
+            assert p_res.json()[0]["stock_level"] == "full"
+            assert p_res.json()[0]["expiry_date"] is not None # should have recomputed expiry
+    finally:
+        member = db.query(HouseholdMember).filter(HouseholdMember.user_id == test_user_id).first()
+        if member:
+            hh_id = member.household_id
+            db.query(PantryItem).filter(PantryItem.household_id == hh_id).delete()
+            g_lists = db.query(GroceryList).filter(GroceryList.household_id == hh_id).all()
+            for gl in g_lists:
+                db.query(GroceryListItem).filter(GroceryListItem.grocery_list_id == gl.id).delete()
+                db.delete(gl)
+            db.query(HouseholdMember).filter(HouseholdMember.household_id == hh_id).delete()
+            db.query(Household).filter(Household.id == hh_id).delete()
+            db.commit()
         db.close()
         app.dependency_overrides.pop(get_current_user_id, None)

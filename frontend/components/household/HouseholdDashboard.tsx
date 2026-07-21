@@ -49,8 +49,13 @@ export default function HouseholdDashboard() {
     await loadData();
   };
 
-  const handleAddPantry = async (item: { item_name: string; quantity: number; unit: string; min_threshold?: number }) => {
+  const handleAddPantry = async (item: { item_name: string; stock_level?: string; category?: string; expiry_date?: string; is_bulk?: boolean }) => {
     await api.addOrUpdatePantryItem(item);
+    await loadData();
+  };
+
+  const handleQuickStock = async (items: { item_name: string; category: string; stock_level: string; is_bulk: boolean }[]) => {
+    await api.quickStockPantry(items);
     await loadData();
   };
 
@@ -65,7 +70,11 @@ export default function HouseholdDashboard() {
   };
 
   const handleToggleGrocery = async (id: string, isPurchased: boolean) => {
-    await api.updateGroceryItem(id, isPurchased);
+    if (isPurchased) {
+      await api.markPurchasedAndRestock([id]);
+    } else {
+      await api.updateGroceryItem(id, false);
+    }
     await loadData();
   };
 
@@ -128,11 +137,12 @@ export default function HouseholdDashboard() {
 
         {/* Left Column: Cook Today + Pantry */}
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-          <CookTodayPanel onPlanRecipe={handleMatchRecipe} />
+          <CookTodayPanel onPlanRecipe={handleMatchRecipe} onCookSuccess={loadData} />
           <PantryManager
             pantry={pantry}
             onAddOrUpdateItem={handleAddPantry}
             onDeleteItem={handleDeletePantry}
+            onQuickStock={handleQuickStock}
           />
         </div>
 

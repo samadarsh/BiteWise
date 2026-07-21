@@ -30,9 +30,9 @@ const FALLBACK_RECOMMENDATIONS = [
 
 const FALLBACK_LOW_STOCK = {
   alerts: [
-    { item_name: "Milk", current_qty: 1.0, unit: "L", min_threshold: 2.0, deficit: 1.0, severity: "low" as const },
-    { item_name: "Rice", current_qty: 0.0, unit: "kg", min_threshold: 1.0, deficit: 1.0, severity: "out_of_stock" as const },
-    { item_name: "Curd", current_qty: 0.5, unit: "kg", min_threshold: 1.0, deficit: 0.5, severity: "low" as const },
+    { item_name: "Milk", stock_level: "low", category: "Dairy", severity: "low" as const },
+    { item_name: "Rice", stock_level: "empty", category: "Staples", severity: "out_of_stock" as const },
+    { item_name: "Curd", stock_level: "low", category: "Dairy", severity: "low" as const },
   ],
   total_alerts: 3, out_of_stock_count: 1, low_stock_count: 2, auto_added_to_grocery: ["Rice"],
 };
@@ -377,7 +377,7 @@ export default function PitchPage() {
                         <span className="font-bold text-white">{alert.item_name}</span>
                       </div>
                       <div className="text-right">
-                        <span className="font-mono text-white/60">{alert.current_qty}/{alert.min_threshold} {alert.unit}</span>
+                        <span className="font-mono text-white/60 uppercase">{alert.stock_level}</span>
                         <span className="block text-[9px] font-black uppercase mt-0.5">
                           {alert.severity === "out_of_stock" ? "OUT OF STOCK" : "LOW"}
                         </span>

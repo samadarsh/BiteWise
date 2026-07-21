@@ -57,6 +57,23 @@ def init_db():
                     if "selected_item_nutrition" not in sess_columns:
                         conn.execute(text("ALTER TABLE order_sessions ADD COLUMN selected_item_nutrition JSON"))
 
+            # Idempotent column check for pantry_items
+            if inspector.has_table("pantry_items"):
+                pantry_columns = [col["name"] for col in inspector.get_columns("pantry_items")]
+                with engine.begin() as conn:
+                    if "stock_level" not in pantry_columns:
+                        conn.execute(text("ALTER TABLE pantry_items ADD COLUMN stock_level VARCHAR DEFAULT 'full'"))
+                    if "category" not in pantry_columns:
+                        conn.execute(text("ALTER TABLE pantry_items ADD COLUMN category VARCHAR DEFAULT 'Other'"))
+                    if "expiry_date" not in pantry_columns:
+                        conn.execute(text("ALTER TABLE pantry_items ADD COLUMN expiry_date DATE"))
+                    if "added_at" not in pantry_columns:
+                        conn.execute(text("ALTER TABLE pantry_items ADD COLUMN added_at DATETIME"))
+                    if "is_bulk" not in pantry_columns:
+                        conn.execute(text("ALTER TABLE pantry_items ADD COLUMN is_bulk BOOLEAN DEFAULT 0"))
+                    if "bulk_use_count" not in pantry_columns:
+                        conn.execute(text("ALTER TABLE pantry_items ADD COLUMN bulk_use_count INTEGER DEFAULT 0"))
+
             with engine.begin() as conn:
                 for col_name, col_type in new_columns:
                     if col_name not in columns:

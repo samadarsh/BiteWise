@@ -7,13 +7,16 @@ interface CookTodayPanelProps {
     ingredients: { name: string; qty: number; unit: string }[];
     planned_for_date: string;
   }) => Promise<unknown>;
+  onCookSuccess?: () => void | Promise<void>;
 }
 
-export default function CookTodayPanel({ onPlanRecipe }: CookTodayPanelProps) {
+export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookTodayPanelProps) {
   const [data, setData] = useState<CookTodayResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [planningRecipe, setPlanningRecipe] = useState<string | null>(null);
+  const [cookingRecipe, setCookingRecipe] = useState<string | null>(null);
   const [showSkipped, setShowSkipped] = useState(false);
+  const [cookMessage, setCookMessage] = useState<string | null>(null);
 
   const loadSuggestions = useCallback(async () => {
     try {
@@ -39,8 +42,8 @@ export default function CookTodayPanel({ onPlanRecipe }: CookTodayPanelProps) {
         recipe_name: recipe.name,
         ingredients: recipe.missing_items.map((mi) => ({
           name: mi.name,
-          qty: mi.deficit,
-          unit: mi.unit,
+          qty: 1.0, // default Pack/Unit for qualitative matching
+          unit: "pack",
         })),
         planned_for_date: today,
       });
@@ -49,6 +52,27 @@ export default function CookTodayPanel({ onPlanRecipe }: CookTodayPanelProps) {
       alert("Failed to plan recipe");
     } finally {
       setPlanningRecipe(null);
+    }
+  };
+
+  const handleCookRecipe = async (recipeName: string) => {
+    setCookingRecipe(recipeName);
+    setCookMessage(null);
+    try {
+      const res = await api.cookRecipe(recipeName);
+      if (res.success) {
+        setCookMessage(`Cooked ${recipeName}! Pantry items updated.`);
+        setTimeout(() => setCookMessage(null), 5000);
+        
+        await loadSuggestions();
+        if (onCookSuccess) {
+          await onCookSuccess();
+        }
+      }
+    } catch (err) {
+      alert("Failed to record cooking: " + err);
+    } finally {
+      setCookingRecipe(null);
     }
   };
 
@@ -86,7 +110,7 @@ export default function CookTodayPanel({ onPlanRecipe }: CookTodayPanelProps) {
     );
 
   return (
-    <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
+    <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col gap-4 text-left">
       <div className="flex justify-between items-center border-b border-slate-800 pb-3">
         <h3 className="text-lg font-bold text-white flex items-center gap-2">
           🍳 What Can I Cook Today?
@@ -103,14 +127,20 @@ export default function CookTodayPanel({ onPlanRecipe }: CookTodayPanelProps) {
         </div>
       </div>
 
+      {cookMessage && (
+        <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-semibold">
+          🎉 {cookMessage}
+        </div>
+      )}
+
       {/* Recipe Cards */}
-      <div className="grid grid-cols-1 gap-3">
+      <div className="grid grid-cols-1 gap-3 max-h-[420px] overflow-y-auto pr-1">
         {data.suggestions.map((recipe: RecipeSuggestion) => {
           const dimmed = recipe.coverage_pct < 50;
           return (
             <div
               key={recipe.name}
-              className={`p-3 rounded-xl border transition-all ${
+              className={`p-3 rounded-xl border transition-all flex flex-col gap-2.5 ${
                 dimmed
                   ? "border-slate-800/50 bg-slate-950/30 opacity-60"
                   : recipe.can_cook_now
@@ -119,12 +149,17 @@ export default function CookTodayPanel({ onPlanRecipe }: CookTodayPanelProps) {
               }`}
             >
               {/* Recipe Header */}
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm text-white">{recipe.name}</span>
                   {dietBadge(recipe.diet)}
                   {recipe.can_cook_now && (
                     <span className="text-[9px] font-black text-emerald-400 uppercase">✓ Ready</span>
+                  )}
+                  {recipe.uses_expiring_items && (
+                    <span className="text-[9px] font-black bg-amber-500/15 text-amber-400 border border-amber-500/25 rounded px-1.5 uppercase tracking-wide">
+                      ⏰ Expiring Ingredients
+                    </span>
                   )}
                 </div>
                 <span className="text-[10px] font-mono text-slate-500">
@@ -133,7 +168,7 @@ export default function CookTodayPanel({ onPlanRecipe }: CookTodayPanelProps) {
               </div>
 
               {/* Coverage Bar */}
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2">
                 <div className="flex-1 h-2 rounded-full bg-slate-800 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${coverageBarColor(recipe.coverage_pct)}`}
@@ -147,30 +182,41 @@ export default function CookTodayPanel({ onPlanRecipe }: CookTodayPanelProps) {
 
               {/* Missing Items */}
               {recipe.missing_items.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
+                <div className="flex flex-wrap gap-1">
                   {recipe.missing_items.map((mi) => (
                     <span
                       key={mi.name}
                       className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
                     >
-                      {mi.name} ({mi.deficit} {mi.unit})
+                      Missing: {mi.name}
                     </span>
                   ))}
                 </div>
               )}
 
-              {/* Action Button */}
-              {!recipe.can_cook_now && recipe.missing_items.length > 0 && (
-                <button
-                  onClick={() => handlePlanRecipe(recipe)}
-                  disabled={planningRecipe === recipe.name}
-                  className="text-[10px] font-bold px-3 py-1 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30 transition disabled:opacity-50"
-                >
-                  {planningRecipe === recipe.name
-                    ? "Adding to list..."
-                    : `Add ${recipe.missing_items.length} missing to grocery list`}
-                </button>
-              )}
+              {/* Action Buttons */}
+              <div className="flex gap-2 pt-1 border-t border-slate-900/60 mt-1">
+                {recipe.coverage_pct > 0 && (
+                  <button
+                    onClick={() => handleCookRecipe(recipe.name)}
+                    disabled={cookingRecipe !== null}
+                    className="text-[10px] font-bold px-3 py-1.5 rounded bg-emerald-500 text-slate-950 hover:bg-emerald-600 transition disabled:opacity-50"
+                  >
+                    {cookingRecipe === recipe.name ? "Updating pantry..." : "🍳 I Cooked This"}
+                  </button>
+                )}
+                {!recipe.can_cook_now && recipe.missing_items.length > 0 && (
+                  <button
+                    onClick={() => handlePlanRecipe(recipe)}
+                    disabled={planningRecipe === recipe.name}
+                    className="text-[10px] font-bold px-3 py-1.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30 transition disabled:opacity-50"
+                  >
+                    {planningRecipe === recipe.name
+                      ? "Adding..."
+                      : `Add missing to list`}
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}

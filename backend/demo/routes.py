@@ -14,6 +14,7 @@ from mcp.instamart_mock import MockSwiggyInstamartMCP
 from backend.household.models import Household, HouseholdMember
 from backend.pantry.models import PantryItem
 from backend.grocery.models import GroceryList, GroceryListItem, RecipePlan, InstamartCartSession
+from backend.pantry.templates import get_category_default_expiry_days
 
 router = APIRouter(prefix="/demo", tags=["Demo Management"])
 
@@ -242,21 +243,26 @@ async def seed_demo_data(
 
         # Pantry Items — mixed stock levels for demo story
         pantry_seed = [
-            ("Milk", 1.0, "L", 2.0),       # low stock
-            ("Eggs", 6.0, "unit", 6.0),     # ok
-            ("Rice", 0.0, "kg", 1.0),       # out of stock
-            ("Onion", 2.0, "kg", 1.0),      # ok
-            ("Curd", 0.5, "kg", 1.0),       # low stock
-            ("Tomato", 0.3, "kg", 0.5),     # low stock
+            ("Milk", "low", "Dairy", False),
+            ("Eggs", "full", "Proteins", False),
+            ("Rice", "empty", "Staples", True),
+            ("Onion", "full", "Vegetables", True),
+            ("Curd", "low", "Dairy", False),
+            ("Tomato", "low", "Vegetables", False),
         ]
-        for name, qty, unit, threshold in pantry_seed:
+        for name, stock, cat, bulk in pantry_seed:
+            # Perishables get default auto-expiry dates
+            days = get_category_default_expiry_days(cat)
+            expiry = (datetime.datetime.utcnow() + datetime.timedelta(days=days)).date() if days is not None else None
+
             db.add(PantryItem(
                 id=f"pantry_{secrets.token_hex(4)}",
                 household_id=hh_id,
                 item_name=name,
-                quantity=qty,
-                unit=unit,
-                min_threshold=threshold,
+                stock_level=stock,
+                category=cat,
+                expiry_date=expiry,
+                is_bulk=bulk,
             ))
 
         # Grocery List with 2 unpurchased items

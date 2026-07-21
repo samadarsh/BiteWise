@@ -253,9 +253,12 @@ export interface PantryItem {
   id: string;
   household_id: string;
   item_name: string;
-  quantity: number;
-  unit: string;
-  min_threshold?: number | null;
+  stock_level: "full" | "half" | "low" | "empty";
+  category: string;
+  expiry_date?: string | null;
+  added_at: string;
+  is_bulk: boolean;
+  bulk_use_count: number;
   updated_at: string;
 }
 
@@ -585,10 +588,46 @@ export const api = {
   /**
    * Adds or updates a pantry item.
    */
-  async addOrUpdatePantryItem(item: { item_name: string; quantity: number; unit: string; min_threshold?: number }): Promise<PantryItem> {
+  async addOrUpdatePantryItem(item: { item_name: string; stock_level?: string; category?: string; expiry_date?: string; is_bulk?: boolean }): Promise<PantryItem> {
     return apiFetch<PantryItem>("/pantry", {
       method: "POST",
       body: JSON.stringify(item)
+    });
+  },
+
+  /**
+   * Batch-adds items from the kitchen template.
+   */
+  async quickStockPantry(items: { item_name: string; stock_level?: string; category?: string; is_bulk?: boolean }[]): Promise<{ success: boolean; added_count: number; added_items: string[] }> {
+    return apiFetch<{ success: boolean; added_count: number; added_items: string[] }>("/pantry/quick-stock", {
+      method: "POST",
+      body: JSON.stringify({ items })
+    });
+  },
+
+  /**
+   * Auto-decrements pantry items used in a recipe.
+   */
+  async cookRecipe(recipeName: string): Promise<{ success: boolean; recipe: string; decremented: { item: string; before: string; after: string; bulk_cycle?: number }[] }> {
+    return apiFetch<{ success: boolean; recipe: string; decremented: { item: string; before: string; after: string; bulk_cycle?: number }[] }>(`/pantry/cook/${encodeURIComponent(recipeName)}`, {
+      method: "POST"
+    });
+  },
+
+  /**
+   * Returns items expiring within a window of days.
+   */
+  async getExpiringItems(days: number = 3): Promise<{ expiring_items: { id: string; item_name: string; category: string; stock_level: string; expiry_date: string; days_left: number; urgency: "today" | "tomorrow" | "soon" }[]; total_count: number }> {
+    return apiFetch<{ expiring_items: { id: string; item_name: string; category: string; stock_level: string; expiry_date: string; days_left: number; urgency: "today" | "tomorrow" | "soon" }[]; total_count: number }>(`/pantry/expiring?days=${days}`);
+  },
+
+  /**
+   * Marks grocery items as purchased and restocks them in the pantry to full.
+   */
+  async markPurchasedAndRestock(itemIds: string[]): Promise<{ success: boolean; marked_purchased: string[]; restocked_to_full: string[] }> {
+    return apiFetch<{ success: boolean; marked_purchased: string[]; restocked_to_full: string[] }>("/pantry/mark-purchased", {
+      method: "POST",
+      body: JSON.stringify({ item_ids: itemIds })
     });
   },
 
@@ -701,10 +740,8 @@ export const api = {
 
 export interface LowStockAlert {
   item_name: string;
-  current_qty: number;
-  unit: string;
-  min_threshold: number;
-  deficit: number;
+  stock_level: string;
+  category: string;
   severity: "out_of_stock" | "low";
 }
 
@@ -733,6 +770,7 @@ export interface RecipeSuggestion {
   matched_ingredients: number;
   missing_items: RecipeMissingItem[];
   can_cook_now: boolean;
+  uses_expiring_items?: boolean;
 }
 
 export interface SkippedRecipe {
