@@ -2,9 +2,16 @@ import sys
 import traceback
 
 def run_suite():
+    # Initialize DB schema & migrations first
+    try:
+        from backend.main import init_db
+        init_db()
+    except Exception as e:
+        print(f"Warning: init_db failed: {e}")
+
     # Import test modules
     try:
-        from agent.tests import test_ranking, test_caching, test_fallback, test_integration, test_nutrition, test_coach, test_demo, test_observability, test_oauth_pkce, test_household
+        from agent.tests import test_ranking, test_caching, test_fallback, test_integration, test_nutrition, test_coach, test_demo, test_observability, test_oauth_pkce, test_household, test_user_auth
     except ImportError as e:
         print(f"Failed to import test modules: {str(e)}")
         sys.exit(1)
@@ -57,13 +64,20 @@ def run_suite():
         ("test_log_redaction_extra", test_observability.test_log_redaction_extra),
         ("test_mcp_client_logs_safe_metadata_without_raw_arguments", test_observability.test_mcp_client_logs_safe_metadata_without_raw_arguments),
         ("test_swiggy_oauth_start_sets_cookies_and_returns_url", test_oauth_pkce.test_swiggy_oauth_start_sets_cookies_and_returns_url),
+        ("test_swiggy_oauth_start_requires_bitewise_session", test_oauth_pkce.test_swiggy_oauth_start_requires_bitewise_session),
         ("test_swiggy_oauth_callback_state_verification", test_oauth_pkce.test_swiggy_oauth_callback_state_verification),
         ("test_swiggy_oauth_callback_mock_mode_success", test_oauth_pkce.test_swiggy_oauth_callback_mock_mode_success),
         ("test_swiggy_oauth_callback_production_token_exchange", test_oauth_pkce.test_swiggy_oauth_callback_production_token_exchange),
         ("test_swiggy_oauth_callback_success_redirect", test_oauth_pkce.test_swiggy_oauth_callback_success_redirect),
+        ("test_swiggy_oauth_callback_requires_bitewise_session", test_oauth_pkce.test_swiggy_oauth_callback_requires_bitewise_session),
         ("test_swiggy_oauth_callback_failure_redirect", test_oauth_pkce.test_swiggy_oauth_callback_failure_redirect),
         ("test_household_module_flow", test_household.test_household_module_flow),
         ("test_household_intelligence_flow", test_household.test_household_intelligence_flow),
+        ("test_get_me_unauthenticated", test_user_auth.test_get_me_unauthenticated),
+        ("test_guest_login", test_user_auth.test_guest_login),
+        ("test_google_login", test_user_auth.test_google_login),
+        ("test_google_login_rejects_audience_mismatch", test_user_auth.test_google_login_rejects_audience_mismatch),
+        ("test_logout", test_user_auth.test_logout),
     ]
 
     passed = 0

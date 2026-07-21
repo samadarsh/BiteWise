@@ -11,17 +11,24 @@ from backend.auth.sessions import decrypt_token
 def test_swiggy_oauth_start_sets_cookies_and_returns_url():
     """Verify that start endpoint sets PKCE cookies and returns correct auth URL with state."""
     with TestClient(app) as client:
+        client.post("/auth/guest")
         res = client.get("/auth/swiggy/start")
         assert res.status_code == 200
         data = res.json()
         assert "redirect_url" in data
         assert "code_challenge" in data
-        assert "scope=mcp%3Atools" in data.get("redirect_url")
 
         # Cookies check
         cookies = res.cookies
         assert "oauth_code_verifier" in cookies
         assert "oauth_state" in cookies
+
+def test_swiggy_oauth_start_requires_bitewise_session():
+    """Verify that users must log into BiteWise before starting Swiggy linkage."""
+    with TestClient(app) as client:
+        res = client.get("/auth/swiggy/start")
+        assert res.status_code == 401
+        assert "unauthenticated" in res.json()["detail"].lower()
 
 def test_swiggy_oauth_callback_state_verification():
     """Verify that callback endpoint rejects missing or mismatched state cookies."""
@@ -42,12 +49,14 @@ def test_swiggy_oauth_callback_state_verification():
         assert "oauth_code_verifier" not in res2.cookies
 
 def test_swiggy_oauth_callback_mock_mode_success():
-    """Verify that mock callback succeeds and auto-provisions user profile with JSON response."""
+    """Verify that mock callback succeeds only when linked to an active BiteWise user."""
     original_key = os.environ.get("ENCRYPTION_KEY")
     os.environ["ENCRYPTION_KEY"] = secrets.token_hex(32)
 
     try:
         with TestClient(app) as client:
+            guest_res = client.post("/auth/guest")
+            guest_user_id = guest_res.json()["user_id"]
             client.cookies.set("oauth_state", "my_state")
             client.cookies.set("oauth_code_verifier", "my_verifier")
 
@@ -65,6 +74,7 @@ def test_swiggy_oauth_callback_mock_mode_success():
             db = SessionLocal()
             try:
                 user_id = data["user_id"]
+                assert user_id == guest_user_id
                 user = db.query(User).filter(User.id == user_id).first()
                 assert user is not None
                 
@@ -111,6 +121,20 @@ def test_swiggy_oauth_callback_production_token_exchange(mock_post):
 
     try:
         with TestClient(app) as client:
+            stg_user_id = f"stg_user_{secrets.token_hex(4)}"
+            db_setup = SessionLocal()
+            try:
+                stg_user = User(
+                    id=stg_user_id,
+                    auth_provider="google",
+                    email=f"{stg_user_id}@example.com"
+                )
+                db_setup.add(stg_user)
+                db_setup.commit()
+            finally:
+                db_setup.close()
+
+            client.cookies.set("bitewise_session", stg_user_id)
             client.cookies.set("oauth_state", "stg_state")
             client.cookies.set("oauth_code_verifier", "stg_verifier")
 
@@ -152,6 +176,7 @@ def test_swiggy_oauth_callback_production_token_exchange(mock_post):
 def test_swiggy_oauth_callback_success_redirect():
     """Verify that successful oauth callback redirects to frontend app dashboard."""
     with TestClient(app) as client:
+        client.post("/auth/guest")
         client.cookies.set("oauth_state", "my_state")
         client.cookies.set("oauth_code_verifier", "my_verifier")
 
@@ -159,7 +184,18 @@ def test_swiggy_oauth_callback_success_redirect():
         res = client.get("/auth/swiggy/callback?code=mock_code&state=my_state", follow_redirects=False)
         assert res.status_code == 307
         assert "/app" in res.headers.get("location")
+        assert "bitewise_session" in res.cookies
         assert "nutriorder_session" in res.cookies
+
+def test_swiggy_oauth_callback_requires_bitewise_session():
+    """Verify that a valid OAuth code cannot create a disconnected app user."""
+    with TestClient(app) as client:
+        client.cookies.set("oauth_state", "my_state")
+        client.cookies.set("oauth_code_verifier", "my_verifier")
+
+        res = client.get("/auth/swiggy/callback?code=mock_code&state=my_state&return_json=true")
+        assert res.status_code == 401
+        assert "BiteWise" in res.json()["detail"]
 
 def test_swiggy_oauth_callback_failure_redirect():
     """Verify that failed oauth callback redirects to frontend landing page with error parameter."""

@@ -7,6 +7,10 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(String, primary_key=True, index=True)
+    email = Column(String, unique=True, nullable=True, index=True)
+    name = Column(String, nullable=True)
+    avatar_url = Column(String, nullable=True)
+    auth_provider = Column(String, default="guest", nullable=False)
     swiggy_user_ref = Column(String, unique=True, nullable=True, index=True)
     created_at = Column(DateTime, default=func.now(), nullable=False)
 

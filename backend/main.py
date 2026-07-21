@@ -11,7 +11,7 @@ from backend.db.session import engine, Base
 import backend.db.models  # Registers SQLite/PostgreSQL models
 
 # Import routers
-from backend.auth import swiggy_oauth
+from backend.auth import swiggy_oauth, user_auth
 from backend.users import routes as users_routes
 from backend.orders import routes as orders_routes
 from backend.recommendations import routes as recommendations_routes
@@ -30,13 +30,25 @@ app = FastAPI(
 # Startup DB initialization hook
 @app.on_event("startup")
 def init_db():
-    # 1. Create any missing tables first (e.g. order_feedbacks)
+    # 1. Create any missing tables first
     Base.metadata.create_all(bind=engine)
 
-    # 2. Run SQLite-specific idempotent migrations for UserProfile columns
+    # 2. Run SQLite-specific idempotent migrations
     if "sqlite" in engine.dialect.name:
         from sqlalchemy import inspect, text
         inspector = inspect(engine)
+
+        if inspector.has_table("users"):
+            user_cols = [col["name"] for col in inspector.get_columns("users")]
+            with engine.begin() as conn:
+                if "email" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR"))
+                if "name" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR"))
+                if "avatar_url" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN avatar_url VARCHAR"))
+                if "auth_provider" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN auth_provider VARCHAR DEFAULT 'guest'"))
         if inspector.has_table("user_profiles"):
             columns = [col["name"] for col in inspector.get_columns("user_profiles")]
             new_columns = [
@@ -110,6 +122,7 @@ app.add_middleware(
 )
 
 # Include modules
+app.include_router(user_auth.router)
 app.include_router(swiggy_oauth.router)
 app.include_router(users_routes.router)
 app.include_router(orders_routes.router)

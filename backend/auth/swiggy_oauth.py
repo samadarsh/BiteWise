@@ -1,15 +1,15 @@
-import os
 import secrets
 import hashlib
 import base64
 import datetime
 from typing import Dict, Any, Optional
 from urllib.parse import urlencode
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, Cookie
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, Cookie, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from backend.db.session import get_db
 from backend.db.models import User, SwiggyToken, UserProfile
-from backend.auth.sessions import encrypt_token
+from backend.auth.sessions import encrypt_token, get_current_user_id, set_session_cookies, should_use_secure_cookies
 from config.settings import get_settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -25,7 +25,7 @@ def _is_mock_or_dev() -> bool:
     return settings.use_mock_mcp or settings.app_env == "development"
 
 @router.get("/swiggy/start")
-async def start_swiggy_oauth(response: Response) -> Dict[str, str]:
+async def start_swiggy_oauth(request: Request, response: Response) -> Dict[str, str]:
     """
     Step 1 of Swiggy OAuth 2.1 PKCE Flow.
     Generates PKCE verifier, CSRF state, challenge, and sets HTTPOnly cookies.
@@ -35,8 +35,8 @@ async def start_swiggy_oauth(response: Response) -> Dict[str, str]:
     if not client_id:
         raise HTTPException(status_code=503, detail="SWIGGY_CLIENT_ID is not configured.")
 
-    is_local = settings.use_mock_mcp or settings.app_env == "development"
-    secure_cookie = not is_local
+    await get_current_user_id(request, strict=True)
+    secure_cookie = should_use_secure_cookies()
 
     state = secrets.token_urlsafe(16)
     verifier, challenge = generate_pkce_pair()
@@ -68,12 +68,19 @@ async def start_swiggy_oauth(response: Response) -> Dict[str, str]:
         "scope": "mcp:tools",
         "state": state,
     }
+
+    if settings.use_mock_mcp:
+        # In mock mode, bypass Swiggy's auth portal to avoid whitelist wall during demos
+        mock_redirect = f"{settings.swiggy_redirect_uri}?code=mock_code&state={state}"
+        return {
+            "code_challenge": challenge,
+            "redirect_url": mock_redirect
+        }
+
     return {
         "code_challenge": challenge,
         "redirect_url": f"{settings.swiggy_auth_url}?{urlencode(params)}"
     }
-
-from fastapi.responses import RedirectResponse
 
 @router.get("/swiggy/callback")
 async def swiggy_oauth_callback(
@@ -83,6 +90,8 @@ async def swiggy_oauth_callback(
     return_json: bool = Query(False, description="If true, returns JSON instead of redirecting"),
     oauth_code_verifier: Optional[str] = Cookie(None),
     oauth_state: Optional[str] = Cookie(None),
+    bitewise_session: Optional[str] = Cookie(None),
+    nutriorder_session: Optional[str] = Cookie(None),
     db: Session = Depends(get_db)
 ):
     """
@@ -120,18 +129,37 @@ async def swiggy_oauth_callback(
             "OAuth code verifier session expired or missing."
         )
 
+    settings = get_settings()
+
+    # Require an active BiteWise user session before exchanging or storing Swiggy tokens.
+    session_user_id = bitewise_session or nutriorder_session
+    if not session_user_id:
+        return handle_error(
+            401,
+            "Must be logged into BiteWise before connecting your Swiggy account."
+        )
+
+    user = db.query(User).filter(User.id == session_user_id).first()
+    if not user:
+        return handle_error(
+            401,
+            "BiteWise session was not found. Please sign in again before connecting Swiggy."
+        )
+
     if not _is_mock_or_dev():
         import requests
-        settings = get_settings()
 
+        # Swiggy OAuth 2.1 PKCE token exchange payload (client_secret is optional if PKCE public client)
         payload = {
             "grant_type": "authorization_code",
-            "client_id": settings.swiggy_client_id,
-            "client_secret": settings.swiggy_client_secret,
             "code": code,
             "code_verifier": oauth_code_verifier,
             "redirect_uri": settings.swiggy_redirect_uri
         }
+        if settings.swiggy_client_id:
+            payload["client_id"] = settings.swiggy_client_id
+        if settings.swiggy_client_secret:
+            payload["client_secret"] = settings.swiggy_client_secret
 
         try:
             token_res = requests.post(
@@ -167,63 +195,38 @@ async def swiggy_oauth_callback(
     # Encrypt token securely
     encrypted = encrypt_token(access_token)
 
-    # Create User
-    user_id = f"user_{secrets.token_hex(4)}"
-    new_user = User(id=user_id, swiggy_user_ref=f"swiggy_ref_{user_id}")
-    db.add(new_user)
+    if not user.swiggy_user_ref:
+        user.swiggy_user_ref = f"swiggy_ref_{user.id}"
 
-    # Save Token
-    token_record = SwiggyToken(
-        user_id=user_id,
-        encrypted_access_token=encrypted,
-        expires_at=datetime.datetime.now() + datetime.timedelta(seconds=expires_in),
-        scope=scope
-    )
-    db.add(token_record)
-
-    # Create Profile
-    profile = UserProfile(
-        user_id=user_id,
-        protein_target=30,
-        calorie_target=600,
-        diet_preference="any",
-        allergies=[],
-        dislikes=[],
-        favorite_cuisines=["indian"],
-        fitness_goal="maintenance"
-    )
-    db.add(profile)
+    # Upsert Swiggy Token for this user
+    token_record = db.query(SwiggyToken).filter(SwiggyToken.user_id == user.id).first()
+    if token_record:
+        token_record.encrypted_access_token = encrypted
+        token_record.expires_at = datetime.datetime.now() + datetime.timedelta(seconds=expires_in)
+        token_record.scope = scope
+    else:
+        token_record = SwiggyToken(
+            user_id=user.id,
+            encrypted_access_token=encrypted,
+            expires_at=datetime.datetime.now() + datetime.timedelta(seconds=expires_in),
+            scope=scope
+        )
+        db.add(token_record)
 
     db.commit()
 
     if return_json:
-        # Set cookie on injected response parameter
-        response.set_cookie(
-            key="nutriorder_session",
-            value=user_id,
-            httponly=True,
-            secure=False,
-            samesite="lax",
-            max_age=432000
-        )
+        set_session_cookies(response, user.id, max_age=432000)
         clean_cookies()
         return {
             "success": True,
-            "user_id": user_id,
+            "user_id": user.id,
             "message": "Authenticated successfully. Encrypted credentials saved in DB.",
             "expires_in_seconds": 432000
         }
     else:
-        settings = get_settings()
         redirect_res = RedirectResponse(url=f"{settings.frontend_base_url}/app")
-        redirect_res.set_cookie(
-            key="nutriorder_session",
-            value=user_id,
-            httponly=True,
-            secure=False,
-            samesite="lax",
-            max_age=432000
-        )
+        set_session_cookies(redirect_res, user.id, max_age=432000)
         # Clean oauth verifier/state cookies on successful redirect
         redirect_res.delete_cookie("oauth_code_verifier")
         redirect_res.delete_cookie("oauth_state")
@@ -241,7 +244,7 @@ async def demo_login(response: Response, db: Session = Depends(get_db)) -> Dict[
         raise HTTPException(status_code=403, detail="Demo login is disabled in production mode.")
         
     user_id = f"user_demo_{secrets.token_hex(4)}"
-    new_user = User(id=user_id, swiggy_user_ref=f"swiggy_demo_{user_id}")
+    new_user = User(id=user_id, swiggy_user_ref=f"swiggy_demo_{user_id}", auth_provider="guest")
     db.add(new_user)
     
     # Save a mock Token
@@ -250,7 +253,7 @@ async def demo_login(response: Response, db: Session = Depends(get_db)) -> Dict[
         user_id=user_id,
         encrypted_access_token=encrypted,
         expires_at=datetime.datetime.now() + datetime.timedelta(days=5),
-        scope="food:read food:write"
+        scope="mcp:tools"
     )
     db.add(token_record)
     
@@ -268,29 +271,14 @@ async def demo_login(response: Response, db: Session = Depends(get_db)) -> Dict[
     db.add(profile)
     db.commit()
     
-    # Set Cookie
-    response.set_cookie(
-        key="nutriorder_session",
-        value=user_id,
-        httponly=True,
-        secure=False,  # Allow HTTP for local testing
-        samesite="lax",
-        max_age=432000
-    )
+    # Set BiteWise primary and legacy fallback cookies.
+    set_session_cookies(response, user_id, max_age=432000)
     
     return {
         "success": True,
         "user_id": user_id,
         "message": "Demo login successful. Session cookie attached."
     }
-
-@router.post("/logout")
-async def logout(response: Response) -> Dict[str, Any]:
-    """
-    Clears the authenticated user's session cookie.
-    """
-    response.delete_cookie("nutriorder_session")
-    return {"success": True, "message": "Logged out successfully."}
 
 @router.get("/swiggy/status")
 async def swiggy_status(db: Session = Depends(get_db)) -> Dict[str, Any]:
