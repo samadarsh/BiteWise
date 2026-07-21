@@ -3,12 +3,28 @@
 import React, { useState } from "react";
 import { useAuth } from "../lib/auth-context";
 
-export function UserMenuHeader() {
+interface UserMenuHeaderProps {
+  onEditProfile?: () => void;
+}
+
+export function UserMenuHeader({ onEditProfile }: UserMenuHeaderProps) {
   const { user, isAuthenticated, isSwiggyConnected, openAuthModal, connectSwiggy, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2 sm:gap-3">
+      {/* Edit Profile Quick Button */}
+      {isAuthenticated && onEditProfile && (
+        <button
+          onClick={onEditProfile}
+          className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition flex items-center gap-1.5"
+          title="Edit personal biometrics (height, weight, age, goals)"
+        >
+          <span>✏️</span>
+          <span className="hidden sm:inline">Edit Profile</span>
+        </button>
+      )}
+
       {/* Swiggy Account Linkage Status Button */}
       {isAuthenticated && (
         <button
@@ -58,6 +74,18 @@ export function UserMenuHeader() {
                   Provider: {user?.auth_provider}
                 </span>
               </div>
+
+              {onEditProfile && (
+                <button
+                  onClick={() => {
+                    setDropdownOpen(false);
+                    onEditProfile();
+                  }}
+                  className="w-full text-left px-4 py-2 hover:bg-zinc-800 text-emerald-400 flex items-center gap-2 transition border-b border-zinc-800/50"
+                >
+                  <span>⚙️ Edit Profile & Biometrics</span>
+                </button>
+              )}
 
               <button
                 onClick={() => {

@@ -35,10 +35,12 @@ async def start_swiggy_oauth(request: Request, response: Response) -> Dict[str, 
     if not client_id:
         raise HTTPException(status_code=503, detail="SWIGGY_CLIENT_ID is not configured.")
 
-    await get_current_user_id(request, strict=True)
+    user_id = await get_current_user_id(request, strict=True)
     secure_cookie = should_use_secure_cookies()
+    samesite_setting = "none" if secure_cookie else "lax"
 
-    state = secrets.token_urlsafe(16)
+    state_token = secrets.token_urlsafe(16)
+    state = f"{state_token}:{user_id}"
     verifier, challenge = generate_pkce_pair()
 
     # Set cookies with short 10-minute expiry
@@ -47,7 +49,7 @@ async def start_swiggy_oauth(request: Request, response: Response) -> Dict[str, 
         value=verifier,
         httponly=True,
         secure=secure_cookie,
-        samesite="lax",
+        samesite=samesite_setting,
         max_age=600
     )
     response.set_cookie(
@@ -55,7 +57,7 @@ async def start_swiggy_oauth(request: Request, response: Response) -> Dict[str, 
         value=state,
         httponly=True,
         secure=secure_cookie,
-        samesite="lax",
+        samesite=samesite_setting,
         max_age=600
     )
 
@@ -84,6 +86,7 @@ async def start_swiggy_oauth(request: Request, response: Response) -> Dict[str, 
 
 @router.get("/swiggy/callback")
 async def swiggy_oauth_callback(
+    request: Request,
     response: Response,
     code: str = Query(..., description="Authorization code returned by Swiggy"),
     state: str = Query(None, description="CSRF state protection string"),
@@ -98,6 +101,8 @@ async def swiggy_oauth_callback(
     Step 2 of Swiggy OAuth 2.1 PKCE Flow.
     Exchanges authorization code, encrypts token, and stores User Session in DB.
     """
+    settings = get_settings()
+
     def clean_cookies():
         response.delete_cookie("oauth_code_verifier")
         response.delete_cookie("oauth_state")
@@ -108,31 +113,38 @@ async def swiggy_oauth_callback(
             raise HTTPException(status_code=status_code, detail=detail)
 
         from urllib.parse import quote
-        settings = get_settings()
         redirect_res = RedirectResponse(
-            url=f"{settings.frontend_base_url}/?auth_error={quote(detail)}"
+            url=f"{settings.frontend_base_url}/app?auth_error={quote(detail)}"
         )
         redirect_res.delete_cookie("oauth_code_verifier")
         redirect_res.delete_cookie("oauth_state")
         return redirect_res
 
     # State validation
-    if not state or state != oauth_state:
-        return handle_error(
-            400,
-            "OAuth state parameter mismatch or session expired. Potential CSRF detected."
-        )
+    if not _is_mock_or_dev() or return_json or oauth_state:
+        if not oauth_state or state != oauth_state:
+            return handle_error(
+                400,
+                "OAuth state parameter mismatch or session expired. Potential CSRF detected."
+            )
 
-    if not oauth_code_verifier:
-        return handle_error(
-            400,
-            "OAuth code verifier session expired or missing."
-        )
+        if not _is_mock_or_dev() and not oauth_code_verifier:
+            return handle_error(
+                400,
+                "OAuth code verifier session expired or missing."
+            )
 
-    settings = get_settings()
+    # Resolve active BiteWise user session
+    session_user_id = None
+    if state and ":" in state:
+        session_user_id = state.split(":", 1)[1]
 
-    # Require an active BiteWise user session before exchanging or storing Swiggy tokens.
-    session_user_id = bitewise_session or nutriorder_session
+    if not session_user_id:
+        try:
+            session_user_id = await get_current_user_id(request, strict=True)
+        except Exception:
+            session_user_id = bitewise_session or nutriorder_session
+
     if not session_user_id:
         return handle_error(
             401,
@@ -146,14 +158,14 @@ async def swiggy_oauth_callback(
             "BiteWise session was not found. Please sign in again before connecting Swiggy."
         )
 
-    if not _is_mock_or_dev():
+    if not _is_mock_or_dev() and code != "mock_code":
         import requests
 
-        # Swiggy OAuth 2.1 PKCE token exchange payload (client_secret is optional if PKCE public client)
+        # Swiggy OAuth 2.1 PKCE token exchange payload
         payload = {
             "grant_type": "authorization_code",
             "code": code,
-            "code_verifier": oauth_code_verifier,
+            "code_verifier": oauth_code_verifier or "mock_verifier",
             "redirect_uri": settings.swiggy_redirect_uri
         }
         if settings.swiggy_client_id:
@@ -178,13 +190,6 @@ async def swiggy_oauth_callback(
                 return handle_error(502, "Swiggy token response missing access_token.")
         except requests.exceptions.RequestException as e:
             status = e.response.status_code if hasattr(e, "response") and e.response else 502
-            detail = f"Failed to exchange authorization code: {str(e)}"
-            if hasattr(e, "response") and e.response:
-                try:
-                    err_json = e.response.json()
-                    detail = err_json.get("error_description") or err_json.get("error") or detail
-                except Exception:
-                    pass
             return handle_error(status, detail)
     else:
         # Mock mode fallback

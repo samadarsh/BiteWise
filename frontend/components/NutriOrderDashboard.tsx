@@ -565,7 +565,7 @@ export default function NutriOrderDashboard() {
             </span>
           </div>
           <div className="flex items-center gap-2 sm:gap-4">
-            <UserMenuHeader />
+            <UserMenuHeader onEditProfile={() => setEditingProfile(true)} />
           </div>
         </div>
       </header>

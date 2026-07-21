@@ -32,21 +32,27 @@ def test_swiggy_oauth_start_requires_bitewise_session():
 
 def test_swiggy_oauth_callback_state_verification():
     """Verify that callback endpoint rejects missing or mismatched state cookies."""
-    with TestClient(app) as client:
-        # 1. Missing cookies (using return_json=true)
-        res = client.get("/auth/swiggy/callback?code=mock_code&state=mock_state&return_json=true")
-        assert res.status_code == 400
-        assert "state parameter mismatch" in res.json()["detail"]
+    original_use_mock = os.environ.get("USE_MOCK_MCP")
+    os.environ["USE_MOCK_MCP"] = "false"
+    try:
+        with TestClient(app) as client:
+            # 1. Missing cookies (using return_json=true)
+            res = client.get("/auth/swiggy/callback?code=real_code&state=mock_state&return_json=true")
+            assert res.status_code == 400
+            assert "state parameter mismatch" in res.json()["detail"]
 
-        # 2. Mismatched state value
-        client.cookies.set("oauth_state", "real_state")
-        client.cookies.set("oauth_code_verifier", "real_verifier")
-        res2 = client.get("/auth/swiggy/callback?code=mock_code&state=fake_state&return_json=true")
-        assert res2.status_code == 400
-        assert "state parameter mismatch" in res2.json()["detail"]
-        # Cookies must be cleared
-        assert "oauth_state" not in res2.cookies
-        assert "oauth_code_verifier" not in res2.cookies
+            # 2. Mismatched state value
+            client.cookies.set("oauth_state", "real_state")
+            client.cookies.set("oauth_code_verifier", "real_verifier")
+            res2 = client.get("/auth/swiggy/callback?code=real_code&state=fake_state&return_json=true")
+            assert res2.status_code == 400
+            assert "state parameter mismatch" in res2.json()["detail"]
+            # Cookies must be cleared
+            assert "oauth_state" not in res2.cookies
+            assert "oauth_code_verifier" not in res2.cookies
+    finally:
+        if original_use_mock: os.environ["USE_MOCK_MCP"] = original_use_mock
+        else: os.environ.pop("USE_MOCK_MCP", None)
 
 def test_swiggy_oauth_callback_mock_mode_success():
     """Verify that mock callback succeeds only when linked to an active BiteWise user."""
@@ -198,15 +204,21 @@ def test_swiggy_oauth_callback_requires_bitewise_session():
         assert "BiteWise" in res.json()["detail"]
 
 def test_swiggy_oauth_callback_failure_redirect():
-    """Verify that failed oauth callback redirects to frontend landing page with error parameter."""
+    """Verify that failed oauth callback redirects to frontend app dashboard with error parameter."""
     with TestClient(app) as client:
         client.cookies.set("oauth_state", "my_state")
         client.cookies.set("oauth_code_verifier", "my_verifier")
 
-        # Mismatched state should trigger redirect failure
-        res = client.get("/auth/swiggy/callback?code=mock_code&state=bad_state", follow_redirects=False)
-        assert res.status_code == 307
-        assert "/?auth_error=" in res.headers.get("location")
-        # Verify PKCE cookies are deleted
-        assert "oauth_state" not in res.cookies
-        assert "oauth_code_verifier" not in res.cookies
+        # Mismatched state in non-mock mode should trigger redirect failure
+        original_use_mock = os.environ.get("USE_MOCK_MCP")
+        os.environ["USE_MOCK_MCP"] = "false"
+        try:
+            res = client.get("/auth/swiggy/callback?code=real_code&state=bad_state", follow_redirects=False)
+            assert res.status_code == 307
+            assert "auth_error=" in res.headers.get("location")
+            # Verify PKCE cookies are deleted
+            assert "oauth_state" not in res.cookies
+            assert "oauth_code_verifier" not in res.cookies
+        finally:
+            if original_use_mock: os.environ["USE_MOCK_MCP"] = original_use_mock
+            else: os.environ.pop("USE_MOCK_MCP", None)
