@@ -17,20 +17,29 @@ def should_use_secure_cookies() -> bool:
 
 
 def set_session_cookies(response: Response, user_id: str, max_age: int = 30 * 86400) -> None:
+    is_secure = should_use_secure_cookies()
+    samesite = "none" if is_secure else "lax"
     for cookie_name in SESSION_COOKIE_NAMES:
         response.set_cookie(
             key=cookie_name,
             value=user_id,
             httponly=True,
-            secure=should_use_secure_cookies(),
-            samesite="lax",
+            secure=is_secure,
+            samesite=samesite,
             max_age=max_age
         )
 
 
 def clear_session_cookies(response: Response) -> None:
+    is_secure = should_use_secure_cookies()
+    samesite = "none" if is_secure else "lax"
     for cookie_name in SESSION_COOKIE_NAMES:
-        response.delete_cookie(cookie_name)
+        response.delete_cookie(
+            key=cookie_name,
+            httponly=True,
+            secure=is_secure,
+            samesite=samesite,
+        )
 
 
 def _get_encryption_key() -> bytes:

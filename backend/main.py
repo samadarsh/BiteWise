@@ -113,9 +113,12 @@ async def add_request_id_and_logging(request: Request, call_next):
 
 # CORS configuration dynamically resolving allowed origins from settings
 settings = get_settings()
+cors_origins = settings.cors_allowed_origins or ["http://localhost:3000", "http://127.0.0.1:3000"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_allowed_origins or ["http://localhost:3000"],
+    allow_origins=cors_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

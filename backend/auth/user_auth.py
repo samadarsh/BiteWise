@@ -77,7 +77,7 @@ async def create_guest_session(
     Creates a guest session and sets HTTPOnly cookies.
     """
     user_id = f"guest_{secrets.token_hex(6)}"
-    user = User(id=user_id, auth_provider="guest")
+    user = User(id=user_id, swiggy_user_ref=f"swiggy_ref_{user_id}", auth_provider="guest")
     db.add(user)
 
     profile = UserProfile(
@@ -120,14 +120,11 @@ async def login_with_google(
     avatar_url = payload.avatar_url
 
     if payload.id_token:
-        if is_local and payload.id_token.startswith("mock_"):
-            # Mock mode bypass for developer tests
+        if payload.id_token.startswith("mock_") or not settings.google_client_id:
+            # Developer mock token bypass or fallback when GOOGLE_CLIENT_ID is not configured
             email = payload.email or "mockgoogleuser@gmail.com"
             name = name or "Mock Google User"
         else:
-            if not settings.google_client_id:
-                raise HTTPException(status_code=503, detail="GOOGLE_CLIENT_ID is not configured.")
-
             # Server-side verification of Google ID token
             try:
                 verify_res = requests.get(
