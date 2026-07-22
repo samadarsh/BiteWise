@@ -89,9 +89,9 @@ async def create_guest_session(
         dislikes=[],
         favorite_cuisines=["indian"],
         fitness_goal="maintenance",
-        age=28,
-        height_cm=175,
-        weight_kg=70,
+        age=None,
+        height_cm=None,
+        weight_kg=None,
         activity_level="moderate",
         spice_tolerance="medium"
     )
