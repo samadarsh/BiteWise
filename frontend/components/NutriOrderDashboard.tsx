@@ -14,6 +14,8 @@ import DemoStoryBanner from "../components/DemoStoryBanner";
 import AlertBanner from "../components/AlertBanner";
 import LoadingSkeleton from "../components/LoadingSkeleton";
 import HouseholdDashboard from "./household/HouseholdDashboard";
+import NutriOrderView from "./nutriorder/NutriOrderView";
+import SmartPantryView from "./smartpantry/SmartPantryView";
 import { UserMenuHeader } from "./UserMenuHeader";
 import { SwiggyConnectionCard } from "./SwiggyConnectionCard";
 import { useAuth } from "../lib/auth-context";
@@ -746,490 +748,82 @@ export default function NutriOrderDashboard() {
           </div>
         </main>
       ) : (
-        // Dashboard Workflow Panel
-        <div className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 py-4 sm:py-8 flex flex-col gap-4 sm:gap-6">
-          <DemoControlBar
-            onSeed={handleSeedDemo}
-            onReset={handleResetDemo}
-            loading={demoLoading}
-          />
-          <DemoStoryBanner
-            context={
-              activeTab === "household"
-                ? (demoLoading ? "household_empty" : "household_populated")
-                : placedOrderId
-                ? "order_placed"
-                : selectedMeal
-                ? "recommendation_selected"
-                : recommendations.length > 0
-                ? "search_ready"
-                : "just_seeded"
-            }
-          />
-          {alertMessage && (
-            <AlertBanner
-              message={alertMessage}
-              type={alertType}
-              onClose={() => setAlertMessage("")}
+        // Dedicated Product Views
+        <div className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 flex flex-col gap-4 sm:gap-6">
+          
+          {/* Top Product Switcher Navigation */}
+          <div className="flex items-center justify-between border-b border-slate-900 pb-4">
+            <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 p-1 rounded-xl">
+              <button
+                onClick={() => setActiveTab("coach")}
+                className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition flex items-center gap-2 ${
+                  activeTab === "coach"
+                    ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                }`}
+              >
+                <span>🥗</span> <span>NutriOrder AI</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("household")}
+                className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition flex items-center gap-2 ${
+                  activeTab === "household"
+                    ? "bg-teal-400 text-slate-950 shadow-lg shadow-teal-400/20"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                }`}
+              >
+                <span>🏡</span> <span>SmartPantry AI</span>
+              </button>
+            </div>
+
+            <DemoControlBar
+              onSeed={handleSeedDemo}
+              onReset={handleResetDemo}
+              loading={demoLoading}
             />
-          )}
-
-          {/* Swiggy Integration Connection Card */}
-          <div className="mb-4">
-            <SwiggyConnectionCard />
-          </div>
-
-          {/* Product Switcher Navigation */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-b border-slate-900 pb-4">
-            <button
-              onClick={() => setActiveTab("coach")}
-              className={`rounded-xl border p-3 sm:p-4 text-left transition-all duration-200 ${
-                activeTab === "coach"
-                  ? "border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/5"
-                  : "border-slate-800 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60"
-              }`}
-            >
-              <span className="block text-[10px] sm:text-xs font-black uppercase tracking-wider text-emerald-400">NutriOrder AI</span>
-              <span className="mt-0.5 sm:mt-1 block text-xs sm:text-sm font-bold text-slate-100">Health-aware Swiggy food ordering</span>
-              <span className="hidden sm:block mt-1 text-xs text-slate-500">Macros, meal ranking, coupons, safe checkout, nutrition logging.</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("household")}
-              className={`rounded-xl border p-3 sm:p-4 text-left transition-all duration-200 ${
-                activeTab === "household"
-                  ? "border-amber-500 bg-amber-500/10 shadow-lg shadow-amber-500/5"
-                  : "border-slate-800 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60"
-              }`}
-            >
-              <span className="block text-[10px] sm:text-xs font-black uppercase tracking-wider text-amber-400">SmartPantry AI</span>
-              <span className="mt-0.5 sm:mt-1 block text-xs sm:text-sm font-bold text-slate-100">Household pantry and grocery intelligence</span>
-              <span className="hidden sm:block mt-1 text-xs text-slate-500">Low-stock alerts, recipe matching, grocery grouping, cart preview.</span>
-            </button>
           </div>
 
           {activeTab === "coach" ? (
-            <main className="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-6 xl:gap-8 w-full">
-            {/* Left Columns: Address, Profile & Query */}
-            <div className="xl:col-span-4 flex flex-col gap-4 sm:gap-8">
-
-            {/* Dynamic Priorities Control */}
-            <PriorityControls weights={priorityWeights} onChange={setPriorityWeights} />
-
-            {/* Step 1: Address Selection */}
-            <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">1. Address Selection</h3>
-                {selectedAddress && (
-                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-semibold px-2 py-0.5 rounded border border-emerald-500/20">
-                    Sess: {activeSessionId.substr(-6)}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-col gap-3">
-                {addresses.length === 0 ? (
-                  <p className="text-xs text-slate-500 text-center py-4">No addresses found.</p>
-                ) : (
-                  addresses.map((addr) => {
-                    const isChosen = selectedAddress === addr.id;
-                    return (
-                      <div
-                        key={addr.id}
-                        onClick={() => handleAddressSelect(addr.id)}
-                        className={`cursor-pointer border rounded-lg p-3 flex flex-col gap-1 transition ${
-                          isChosen
-                            ? "bg-slate-950/80 border-emerald-500 shadow-md shadow-emerald-500/5"
-                            : "bg-slate-950/20 border-slate-800 hover:border-slate-700"
-                        }`}
-                      >
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-bold text-slate-300">{addr.label}</span>
-                          <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400">
-                            Saved Address
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 leading-relaxed mt-1">{addr.display_text}</p>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </section>
-
-            {/* Step 2: Goal & Preferences Setup */}
-            <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-5">
-              <div className="flex justify-between items-center">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">2. Nutritional Profile</h3>
-                <button
-                  onClick={() => setEditingProfile(true)}
-                  className="text-[10px] text-emerald-400 hover:underline"
-                >
-                  Edit Biometrics ⚙️
-                </button>
-              </div>
-
-              <div className="bg-slate-950/80 rounded-xl p-4 border border-slate-900 text-xs text-slate-400 flex flex-col gap-2">
-                <p className="font-bold text-slate-300">Biometric Targets Engine:</p>
-                <div className="grid grid-cols-2 gap-2 text-[11px] mt-1">
-                  <p>Daily Calories: <strong className="text-blue-400">{profile?.daily_calories || calorieTarget * 3} kcal</strong></p>
-                  <p>Meal Calories: <strong className="text-blue-400">{calorieTarget} kcal</strong></p>
-                  <p>Daily Protein: <strong className="text-emerald-400">{profile?.daily_protein || proteinTarget * 3}g</strong></p>
-                  <p>Meal Protein: <strong className="text-emerald-400">{proteinTarget}g</strong></p>
-                </div>
-                <p className="text-[10px] text-slate-500 mt-1 italic">
-                  Reasoning: {profile?.fitness_goal ? (profile.fitness_goal === "fat_loss" ? "High protein calorie deficit" : profile.fitness_goal === "muscle_gain" ? "Hypertrophic calorie surplus" : "Iso-caloric maintenance") : "Default weights active."}
-                </p>
-              </div>
-
-              {/* Fitness Goal Buttons */}
-              <div>
-                <label className="block text-xs text-slate-400 font-semibold mb-2">Goal Override</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: "muscle_gain", label: "💪 Bulking" },
-                    { id: "fat_loss", label: "🔥 Cutting" },
-                    { id: "maintenance", label: "⚖️ Maintenance" }
-                  ].map((goal) => {
-                    const active = fitnessGoal === goal.id;
-                    return (
-                      <button
-                        key={goal.id}
-                        onClick={() => {
-                          setFitnessGoal(goal.id);
-                          let prot = proteinTarget;
-                          let cal = calorieTarget;
-                          if (goal.id === "muscle_gain") {
-                            prot = 40;
-                            cal = 750;
-                          } else if (goal.id === "fat_loss") {
-                            prot = 30;
-                            cal = 500;
-                          } else {
-                            prot = 35;
-                            cal = 650;
-                          }
-                          setProteinTarget(prot);
-                          setCalorieTarget(cal);
-                          syncProfileChange(goal.id, prot, cal, allergies);
-                        }}
-                        className={`text-xs font-semibold py-2 px-1 rounded-lg border transition ${
-                          active
-                            ? "bg-emerald-500 border-emerald-400 text-slate-950 font-bold"
-                            : "bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-800"
-                        }`}
-                      >
-                        {goal.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Sliders */}
-              <div className="flex flex-col gap-4">
-                <div>
-                  <div className="flex justify-between items-center mb-1.5">
-                     <label className="text-xs text-slate-400">Min Protein Target</label>
-                     <span className="text-xs font-bold text-emerald-400">{proteinTarget}g</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="15"
-                    max="60"
-                    value={proteinTarget}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      setProteinTarget(v);
-                      syncProfileChange(fitnessGoal, v, calorieTarget, allergies);
-                    }}
-                    className="w-full accent-emerald-500 cursor-pointer"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <label className="text-xs text-slate-400">Max Calorie Ceiling</label>
-                    <span className="text-xs font-bold text-blue-400">{calorieTarget} kcal</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="350"
-                    max="1000"
-                    value={calorieTarget}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      setCalorieTarget(v);
-                      syncProfileChange(fitnessGoal, proteinTarget, v, allergies);
-                    }}
-                    className="w-full accent-blue-500 cursor-pointer"
-                  />
-                </div>
-              </div>
-
-              {/* Allergies Pill Selectors */}
-              <div>
-                <label className="block text-xs text-slate-400 font-semibold mb-2">Exclusion / Allergies Filters</label>
-                <div className="flex flex-wrap gap-2">
-                  {["Gluten", "Dairy", "Nuts", "Soy", "Shellfish"].map((allergen) => {
-                    const selected = allergies.includes(allergen);
-                    return (
-                      <button
-                        key={allergen}
-                        onClick={() => handleAllergyToggle(allergen)}
-                        className={`text-xs px-2.5 py-1 rounded-full border transition ${
-                          selected
-                            ? "bg-rose-500/10 border-rose-500 text-rose-300"
-                            : "bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-850"
-                        }`}
-                      >
-                        {selected ? `❌ ${allergen}` : allergen}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
-
-            {/* Step 3: Order Assistant Chat Query */}
-            <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">3. Order Assistant</h3>
-
-              <form onSubmit={handleQuerySearch} className="flex flex-col gap-3">
-                <textarea
-                  rows={2}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="e.g. High protein Paneer lunch with broccoli under Rs 300"
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl p-3 text-sm text-slate-200 placeholder-slate-600 focus:outline-none transition resize-none font-sans"
-                />
-
-                {/* Query templates */}
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    "high protein grilled chicken",
-                    "veg lunch under 600 kcal",
-                    "keto friendly dinner"
-                  ].map((temp) => (
-                    <button
-                      key={temp}
-                      type="button"
-                      onClick={() => setSearchQuery(temp)}
-                      className="text-[10px] bg-slate-950 border border-slate-800 text-slate-500 hover:text-slate-400 hover:border-slate-700 px-2 py-1 rounded transition"
-                    >
-                      💡 {temp}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={searchLoading || !selectedAddress}
-                  className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-800 text-slate-950 font-bold py-2.5 rounded-xl transition text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/10"
-                >
-                  {searchLoading ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4 text-slate-950" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Running AI Engine...
-                    </>
-                  ) : (
-                    "Find Recommended Meal"
-                  )}
-                </button>
-              </form>
-            </section>
-          </div>
-
-          {/* Middle Column: Recommendations & Checkout Cart */}
-          <div className="xl:col-span-4 flex flex-col gap-8">
-            {/* Step 4: Recommendations results list */}
-            <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex-1 flex flex-col gap-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">4. AI Meal Recommendations</h3>
-
-              {/* Smart Constraint Relaxation Payload Options */}
-              <RelaxationOptions options={relaxationOptions} onApplyPatch={handleRelaxationApply} loading={searchLoading} />
-
-              {searchLoading ? (
-                <LoadingSkeleton />
-              ) : recommendations.length === 0 ? (
-                <div className="flex-1 border border-dashed border-slate-800/80 rounded-xl flex flex-col items-center justify-center p-8 text-center text-slate-500 gap-2">
-                  <span className="text-3xl">🍲</span>
-                  <p className="text-sm">Select address and submit query to run recommendation pipeline.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  {recommendations.map((meal) => (
-                    <RecommendationCard
-                      key={meal.id}
-                      meal={meal}
-                      onSelect={handleMealSelect}
-                      selected={selectedMeal?.id === meal.id}
-                      loading={cartLoading}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* Step 5: Checkout Cart Review */}
-            <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">5. Staging Cart Review</h3>
-                {cartLoading && (
-                  <span className="text-[10px] text-emerald-400 font-mono animate-pulse">Syncing...</span>
-                )}
-              </div>
-
-              {!selectedMeal ? (
-                <p className="text-xs text-slate-500 text-center py-4">Select a meal recommendation card above to review checkout parameters.</p>
-              ) : cartLoading ? (
-                <div className="flex items-center justify-center py-6 gap-2">
-                  <svg className="animate-spin h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  <span className="text-xs text-slate-500 font-mono">Synchronizing Swiggy cart...</span>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  {/* Cart metrics */}
-                  <div className="bg-slate-950/80 rounded-xl p-4 border border-slate-800 text-sm flex flex-col gap-2">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Item Selected:</span>
-                      <span className="font-semibold text-slate-200">{selectedMeal.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Restaurant:</span>
-                      <span className="font-semibold text-slate-200">{cartPreview?.restaurantName || selectedMeal.restaurant}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Payment:</span>
-                      <span className="font-semibold text-slate-200">Cash On Delivery (COD)</span>
-                    </div>
-                    {cartPreview && cartPreview.discount_amount && cartPreview.discount_amount > 0 ? (
-                      <div className="flex justify-between text-xs text-emerald-400">
-                        <span>Coupon Discount ({cartPreview.applied_coupon}):</span>
-                        <span>- Rs {cartPreview.discount_amount}</span>
-                      </div>
-                    ) : null}
-                    <div className="flex justify-between border-t border-slate-800 pt-2 font-bold text-slate-200">
-                      <span>Total Amount:</span>
-                      <span className="text-emerald-400">Rs {cartPreview?.total ?? selectedMeal.price}</span>
-                    </div>
-                  </div>
-
-                  {/* Coupon Selector Section */}
-                  <div className="flex flex-col gap-2 border-t border-slate-800 pt-3">
-                    <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">🎟️ Available Coupons</span>
-                    {couponsLoading ? (
-                      <span className="text-xs text-slate-500 font-mono animate-pulse">Loading coupons...</span>
-                    ) : applicableCoupons.length === 0 ? (
-                      <span className="text-xs text-slate-500">No applicable coupons found.</span>
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        {applicableCoupons.map((c) => (
-                          <div
-                            key={c.code}
-                            className={`flex justify-between items-center p-2.5 rounded-xl border transition text-xs ${
-                              appliedCoupon === c.code
-                                ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-300"
-                                : "bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-300"
-                            }`}
-                          >
-                            <div>
-                              <p className="font-bold">{c.code}</p>
-                              <p className="text-[10px] text-slate-400 mt-0.5">{c.description}</p>
-                            </div>
-                            <button
-                              disabled={appliedCoupon === c.code || cartLoading}
-                              onClick={() => handleApplyCoupon(c.code)}
-                              className="bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-bold px-2.5 py-1 rounded-lg text-[10px] transition"
-                            >
-                              {appliedCoupon === c.code ? "Applied" : "Apply"}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Limits and Cap warnings */}
-                  {(cartPreview?.total ?? selectedMeal.price) >= 1000 ? (
-                    <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-3 flex items-start gap-2.5 text-xs text-slate-400">
-                      <span className="text-rose-400 text-sm">❌</span>
-                      <div>
-                        <p className="font-bold text-slate-300">Safety Cap Check Failed</p>
-                        <p className="text-slate-500 mt-0.5">Total of Rs {cartPreview?.total ?? selectedMeal.price} meets or exceeds the Swiggy limit of Rs 1000. Checkout is blocked.</p>
-                      </div>
-                    </div>
-                  ) : (cartPreview?.total ?? selectedMeal.price) >= 850 ? (
-                    <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 flex items-start gap-2.5 text-xs text-slate-400">
-                      <span className="text-amber-400 text-sm">⚠️</span>
-                      <div>
-                        <p className="font-bold text-slate-300">Approaching Cart Cap</p>
-                        <p className="text-slate-500 mt-0.5">Total of Rs {cartPreview?.total ?? selectedMeal.price} is approaching the Rs 1000 limit. Double order prevention lock checks are clear.</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 flex items-start gap-2.5 text-xs text-slate-400">
-                      <span className="text-emerald-400 text-sm">🛡️</span>
-                      <div>
-                        <p className="font-bold text-slate-300">Safety Cap Check Passed</p>
-                        <p className="text-slate-500 mt-0.5">Total is below the Rs 1000 limit. Double order prevention lock checks are clear.</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Confirmation Checkbox */}
-                  <label className="flex items-center gap-3 cursor-pointer select-none border border-slate-800 rounded-xl p-3 bg-slate-950/20 hover:bg-slate-950/50 transition">
-                    <input
-                      type="checkbox"
-                      checked={checkoutConfirmed}
-                      onChange={(e) => handleConfirmCheckbox(e.target.checked)}
-                      className="accent-emerald-500 h-4 w-4 rounded cursor-pointer"
-                    />
-                    <div className="text-xs">
-                      <p className="font-semibold text-slate-300">I confirm these details are correct</p>
-                      <p className="text-slate-500 text-[10px] mt-0.5">Explicit authorization triggers the non-idempotent Swiggy place route.</p>
-                    </div>
-                  </label>
-
-                  <button
-                    onClick={handlePlaceOrder}
-                    disabled={orderPlacing || !checkoutConfirmed || (cartPreview?.total ?? selectedMeal.price) >= 1000}
-                    className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-800 text-slate-950 font-bold py-3.5 rounded-xl transition text-base flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/20 uppercase tracking-wider text-xs"
-                  >
-                    {orderPlacing ? (
-                      <>
-                        <svg className="animate-spin h-5 w-5 text-slate-950" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                        Placing Order...
-                      </>
-                    ) : (
-                      "Place COD Order on Swiggy"
-                    )}
-                  </button>
-                </div>
-              )}
-            </section>
-          </div>
-
-          {/* Right Column: AI Nutrition Coach Dashboard */}
-          <div className="xl:col-span-4 flex flex-col gap-8">
-            <CoachDashboard
-              ref={coachDashboardRef}
+            <NutriOrderView
+              profile={profile}
+              addresses={addresses}
+              selectedAddress={selectedAddress}
+              onSelectAddress={setSelectedAddress}
               activeSessionId={activeSessionId}
-              onSelectMeal={handleMealSelect}
+              sessionStatus={sessionStatus}
+              searchQuery={searchQuery}
+              onSearchQueryChange={setSearchQuery}
+              searchLoading={searchLoading}
+              onSearch={handleSearch}
+              recommendations={recommendations}
+              selectedMeal={selectedMeal}
+              onMealSelect={handleMealSelect}
+              cartPreview={cartPreview}
+              cartLoading={cartLoading}
+              checkoutConfirmed={checkoutConfirmed}
+              onConfirmCheckbox={handleConfirmCheckbox}
+              orderPlacing={orderPlacing}
+              onPlaceOrder={handlePlaceOrder}
+              placedOrderId={placedOrderId}
+              trackingStep={trackingStep}
+              applicableCoupons={applicableCoupons}
+              couponsLoading={couponsLoading}
+              appliedCoupon={appliedCoupon}
+              onApplyCoupon={handleApplyCoupon}
+              relaxationOptions={relaxationOptions}
+              onApplyRelaxation={handleRelaxationApply}
+              priorityWeights={priorityWeights}
+              onPriorityChange={setPriorityWeights}
+              onEditProfile={() => setEditingProfile(true)}
+              alertMessage={alertMessage}
+              alertType={alertType}
+              isSwiggyConnected={isSwiggyConnected}
+              onConnectSwiggy={connectSwiggy}
             />
-          </div>
-        </main>
-      ) : (
-        <HouseholdDashboard />
-      )}
-      </div>
+          ) : (
+            <SmartPantryView />
+          )}
+        </div>
       )}
 
       {/* Post-Order Feedback Modal */}
