@@ -607,7 +607,7 @@ export default function NutriOrderDashboard() {
             </Link>
           </div>
         </main>
-      ) : (!profile || profile.weight_kg === null || profile.height_cm === null || profile.age === null || editingProfile) ? (
+      ) : (!profile || !profile.weight_kg || !profile.height_cm || !profile.age || editingProfile) ? (
         // Onboarding panel if profile details are missing
         <main className="flex-1 max-w-xl w-full mx-auto px-4 py-12 flex items-center justify-center">
           <OnboardingPanel

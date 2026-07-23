@@ -51,6 +51,13 @@ async def get_my_profile(
             "dislikes": user.profile.dislikes,
             "favorite_cuisines": user.profile.favorite_cuisines,
             "fitness_goal": user.profile.fitness_goal,
+            "age": user.profile.age,
+            "gender": user.profile.gender,
+            "height_cm": user.profile.height_cm,
+            "weight_kg": user.profile.weight_kg,
+            "activity_level": user.profile.activity_level,
+            "meal_budget_default": user.profile.meal_budget_default,
+            "spice_tolerance": user.profile.spice_tolerance,
         }
 
     return {

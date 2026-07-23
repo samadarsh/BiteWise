@@ -11,7 +11,27 @@ export function AuthModal() {
 
   const handleGoogleSignIn = async () => {
     setErrorMsg(null);
-    // In dev mode / mock mode, trigger Google Sign-in flow
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+
+    // Check if Google GIS SDK is loaded and client ID configured
+    if (clientId && typeof window !== "undefined") {
+      const g = (window as unknown as { google?: { accounts?: { id?: { initialize: (opts: unknown) => void; prompt: () => void } } } }).google;
+      if (g?.accounts?.id) {
+        g.accounts.id.initialize({
+          client_id: clientId,
+          callback: async (response: { credential?: string }) => {
+            if (response.credential) {
+              const success = await loginWithGoogle(response.credential);
+              if (!success) setErrorMsg("Google token verification failed.");
+            }
+          },
+        });
+        g.accounts.id.prompt();
+        return;
+      }
+    }
+
+    // Dev / mock fallback
     const success = await loginWithGoogle("mock_google_token_123", "demo.user@gmail.com", "Demo User");
     if (!success) {
       setErrorMsg("Failed to authenticate with Google. Please try again.");
