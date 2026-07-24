@@ -10,6 +10,7 @@ import { UserMenuHeader } from "../../components/UserMenuHeader";
 import { ThemeToggle } from "../../components/ThemeToggle";
 import DemoControlBar from "../../components/DemoControlBar";
 import AlertBanner from "../../components/AlertBanner";
+import { Sidebar, MobileProductNav } from "../../components/shell/Sidebar";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -18,27 +19,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </DashboardProvider>
   );
 }
-
-const PRODUCTS = [
-  {
-    href: "/app/nutriorder",
-    eyebrow: "NutriOrder AI",
-    title: "Health-aware Swiggy food ordering",
-    blurb: "Macros, meal ranking, coupons, safe checkout, nutrition logging.",
-    activeCls: "border-nutri bg-nutri/10 shadow-sm",
-    accent: "text-nutri",
-    dot: "bg-nutri",
-  },
-  {
-    href: "/app/smartpantry",
-    eyebrow: "SmartPantry AI",
-    title: "Household pantry and grocery intelligence",
-    blurb: "Low-stock alerts, recipe matching, grocery grouping, cart preview.",
-    activeCls: "border-pantry bg-pantry/10 shadow-sm",
-    accent: "text-pantry",
-    dot: "bg-pantry",
-  },
-];
 
 function Spinner({ className = "" }: { className?: string }) {
   return (
@@ -95,7 +75,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
       {/* Top Navbar */}
       <header className="border-b border-border bg-surface/80 backdrop-blur-lg sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
+        <div className="max-w-[95rem] mx-auto px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-sm font-black text-brand-contrast group-hover:scale-105 transition-transform">B</span>
             <div className="leading-tight hidden sm:block">
@@ -136,36 +116,17 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
       ) : (
-        <div className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 py-4 sm:py-8 flex flex-col gap-4 sm:gap-6">
-          <DemoControlBar onSeed={handleSeed} onReset={handleReset} loading={demoLoading} />
+        <div className="flex-1 w-full max-w-[95rem] mx-auto flex items-start">
+          <Sidebar />
+          <div className="flex-1 min-w-0 px-3 sm:px-4 lg:px-8 py-4 sm:py-8 flex flex-col gap-4 sm:gap-6">
+            <DemoControlBar onSeed={handleSeed} onReset={handleReset} loading={demoLoading} />
 
-          {alert && <AlertBanner message={alert.message} type={alert.type} onClose={clearAlert} />}
+            {alert && <AlertBanner message={alert.message} type={alert.type} onClose={clearAlert} />}
 
-          {/* Product Switcher Navigation */}
-          <nav className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-b border-border pb-4">
-            {PRODUCTS.map((p) => {
-              const isActive = pathname === p.href;
-              return (
-                <Link
-                  key={p.href}
-                  href={p.href}
-                  aria-current={isActive ? "page" : undefined}
-                  className={`rounded-xl border p-3 sm:p-4 text-left transition-all duration-200 ${
-                    isActive ? p.activeCls : "border-border bg-surface hover:border-border-strong"
-                  }`}
-                >
-                  <span className={`flex items-center gap-1.5 text-[10px] sm:text-xs font-black uppercase tracking-wider ${p.accent}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${p.dot}`} />
-                    {p.eyebrow}
-                  </span>
-                  <span className="mt-1 block text-xs sm:text-sm font-bold text-text">{p.title}</span>
-                  <span className="hidden sm:block mt-1 text-xs text-subtle">{p.blurb}</span>
-                </Link>
-              );
-            })}
-          </nav>
+            <MobileProductNav />
 
-          {children}
+            {children}
+          </div>
         </div>
       )}
     </div>
