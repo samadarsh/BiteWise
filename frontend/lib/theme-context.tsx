@@ -28,6 +28,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const stored = (typeof window !== "undefined" && localStorage.getItem("bitewise_theme")) as Theme | null;
     const system = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
     const initial = stored || system;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from localStorage/OS preference after hydration
     setThemeState(initial);
     applyTheme(initial);
   }, []);

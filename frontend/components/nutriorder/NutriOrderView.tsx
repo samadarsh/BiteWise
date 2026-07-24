@@ -141,6 +141,7 @@ export default function NutriOrderView() {
   // Honor an "edit profile" request coming from the shell header menu.
   useEffect(() => {
     if (editProfileRequested) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- consuming a one-shot request signal from the shell context
       setEditingProfile(true);
       clearEditProfileRequest();
     }
@@ -541,7 +542,7 @@ export default function NutriOrderView() {
             <div className="flex justify-between items-center">
               <h3 className="text-xs font-bold uppercase tracking-wider text-nutri">1. Delivery Address</h3>
               {selectedAddress && (
-                <span className="text-[10px] bg-nutri/10 text-nutri font-semibold px-2 py-0.5 rounded border border-nutri/20">Session active</span>
+                <span title={`Order state: ${sessionStatus}`} className="text-[10px] bg-nutri/10 text-nutri font-semibold px-2 py-0.5 rounded border border-nutri/20">Session active</span>
               )}
             </div>
             <div className="flex flex-col gap-3">
