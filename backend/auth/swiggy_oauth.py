@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from backend.db.session import get_db
 from backend.db.models import User, SwiggyToken, UserProfile
-from backend.auth.sessions import encrypt_token, get_current_user_id, set_session_cookies, should_use_secure_cookies
+from backend.auth.sessions import encrypt_token, get_current_user_id, set_session_cookies, should_use_secure_cookies, sign_session
 from config.settings import get_settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -190,7 +190,7 @@ async def swiggy_oauth_callback(
                 return handle_error(502, "Swiggy token response missing access_token.")
         except requests.exceptions.RequestException as e:
             status = e.response.status_code if hasattr(e, "response") and e.response else 502
-            return handle_error(status, detail)
+            return handle_error(status, f"Swiggy token exchange failed: {str(e)}")
     else:
         # Mock mode fallback
         access_token = f"token_swiggy_{secrets.token_hex(16)}"
@@ -282,6 +282,7 @@ async def demo_login(response: Response, db: Session = Depends(get_db)) -> Dict[
     return {
         "success": True,
         "user_id": user_id,
+        "session_token": sign_session(user_id),
         "message": "Demo login successful. Session cookie attached."
     }
 

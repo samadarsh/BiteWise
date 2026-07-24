@@ -66,7 +66,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           avatar_url: avatarUrl,
         });
         if (res.user?.id && typeof window !== "undefined") {
-          localStorage.setItem("bitewise_session_id", res.user.id);
+          // Prefer the signed session token so the Bearer/x-user-id fallback is
+          // trusted in production; fall back to the raw id for older backends.
+          localStorage.setItem("bitewise_session_id", res.session_token || res.user.id);
         }
         await refreshAuth();
         setIsAuthModalOpen(false);
@@ -86,7 +88,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true);
       const res = await loginAsGuestApi();
       if (res.user_id && typeof window !== "undefined") {
-        localStorage.setItem("bitewise_session_id", res.user_id);
+        // Prefer the signed session token (trusted in production); fall back to the raw id.
+        localStorage.setItem("bitewise_session_id", res.session_token || res.user_id);
       }
       await refreshAuth();
       setIsAuthModalOpen(false);

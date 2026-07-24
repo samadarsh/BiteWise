@@ -22,6 +22,7 @@ class Settings:
     allow_place_order: bool
     frontend_base_url: str
     google_client_id: str = ""
+    session_secret: str = ""
     cors_allowed_origins: List[str] = field(default_factory=list)
 
 def get_settings() -> Settings:
@@ -44,5 +45,6 @@ def get_settings() -> Settings:
         allow_place_order=os.getenv("ALLOW_PLACE_ORDER", "false").lower() == "true",
         frontend_base_url=os.getenv("FRONTEND_BASE_URL", "http://localhost:3000"),
         google_client_id=os.getenv("GOOGLE_CLIENT_ID", ""),
+        session_secret=os.getenv("SESSION_SECRET", ""),
         cors_allowed_origins=origins
     )

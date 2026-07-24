@@ -2,6 +2,21 @@ import time
 from typing import Dict, List
 from fastapi import HTTPException, Request
 
+
+def resolve_client_ip(request: Request) -> str:
+    """
+    Resolve the real client IP. Behind a proxy/load balancer (e.g. Render, Vercel),
+    request.client.host is the proxy's address, which would collapse every user into
+    one rate-limit bucket. Prefer the left-most hop in X-Forwarded-For.
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        client = forwarded.split(",")[0].strip()
+        if client:
+            return client
+    return request.client.host if request.client else "unknown"
+
+
 class SlidingWindowRateLimiter:
     """
     In-memory Sliding Window Rate Limiter to guard against endpoint flood/spam.
@@ -25,7 +40,7 @@ class SlidingWindowRateLimiter:
         return False
 
     def __call__(self, request: Request) -> None:
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = resolve_client_ip(request)
         # Rate limit based on endpoint path + client IP
         key = f"{request.url.path}:{client_ip}"
         

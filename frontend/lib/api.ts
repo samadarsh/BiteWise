@@ -868,15 +868,15 @@ export async function fetchAuthStatus(): Promise<AuthStatusResponse> {
   return apiFetch<AuthStatusResponse>("/auth/me");
 }
 
-export async function loginWithGoogleApi(payload: GoogleLoginPayload): Promise<{ success: boolean; user: BiteWiseUser }> {
-  return apiFetch<{ success: boolean; user: BiteWiseUser }>("/auth/google", {
+export async function loginWithGoogleApi(payload: GoogleLoginPayload): Promise<{ success: boolean; user: BiteWiseUser; session_token?: string }> {
+  return apiFetch<{ success: boolean; user: BiteWiseUser; session_token?: string }>("/auth/google", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-export async function loginAsGuestApi(): Promise<{ success: boolean; user_id: string; auth_provider: string }> {
-  return apiFetch<{ success: boolean; user_id: string; auth_provider: string }>("/auth/guest", {
+export async function loginAsGuestApi(): Promise<{ success: boolean; user_id: string; auth_provider: string; session_token?: string }> {
+  return apiFetch<{ success: boolean; user_id: string; auth_provider: string; session_token?: string }>("/auth/guest", {
     method: "POST",
   });
 }

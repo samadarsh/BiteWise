@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
 from backend.db.models import User, UserProfile, SwiggyToken
-from backend.auth.sessions import clear_session_cookies, get_current_user_id, set_session_cookies
+from backend.auth.sessions import clear_session_cookies, get_current_user_id, set_session_cookies, sign_session
 from config.settings import get_settings
 
 router = APIRouter(prefix="/auth", tags=["App Authentication"])
@@ -110,6 +110,7 @@ async def create_guest_session(
     return {
         "success": True,
         "user_id": user_id,
+        "session_token": sign_session(user_id),
         "auth_provider": "guest",
         "message": "Guest session created."
     }
@@ -214,6 +215,7 @@ async def login_with_google(
 
     return {
         "success": True,
+        "session_token": sign_session(user.id),
         "user": {
             "id": user.id,
             "email": user.email,
