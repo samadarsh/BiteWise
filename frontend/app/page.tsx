@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { api, UserProfile } from "../lib/api";
+import { api, fetchAuthStatus, BiteWiseUser } from "../lib/api";
 
 interface SwiggyConfigStatus {
   use_mock_mcp: boolean;
@@ -15,10 +15,9 @@ interface SwiggyConfigStatus {
 }
 
 export default function LandingPage() {
-  const [authLoading, setAuthLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [sessionUser, setSessionUser] = useState<BiteWiseUser | null>(null);
   const [swiggyStatus, setSwiggyStatus] = useState<SwiggyConfigStatus | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [backendOffline, setBackendOffline] = useState(false);
@@ -51,11 +50,11 @@ export default function LandingPage() {
       }
 
       try {
-        const [prof, status] = await Promise.all([
-          api.getProfile(),
+        const [auth, status] = await Promise.all([
+          fetchAuthStatus(),
           api.getSwiggyStatus()
         ]);
-        setUserProfile(prof);
+        setSessionUser(auth.authenticated ? auth.user : null);
         setSwiggyStatus(status);
       } catch {
         try {
@@ -71,28 +70,13 @@ export default function LandingPage() {
     loadSessionData();
   }, []);
 
-  const startSwiggyLogin = async () => {
-    if (backendOffline) return;
-    setAuthLoading(true);
-    setMessage("");
-    try {
-      const res = await api.startSwiggyOAuth();
-      window.location.href = res.redirect_url;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setMessage(`Swiggy login is not ready yet: ${msg}`);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
   const startDemo = async () => {
     if (backendOffline) return;
     setDemoLoading(true);
     setMessage("");
     try {
       await api.demoLogin();
-      window.location.href = "/app";
+      window.location.href = "/app/nutriorder";
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setMessage(`Sandbox demo is not available in this environment: ${msg}`);
@@ -214,22 +198,21 @@ export default function LandingPage() {
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               {sessionLoading ? (
                 <div className="h-12 w-48 rounded-xl bg-white/10 animate-pulse" />
-              ) : userProfile ? (
+              ) : sessionUser ? (
                 <Link
-                  href="/app"
+                  href="/app/nutriorder"
                   className="rounded-xl bg-[#f4b544] px-7 py-3.5 text-sm font-black text-[#17211c] shadow-[0_12px_40px_rgba(244,181,68,0.25)] transition-all duration-200 hover:bg-[#ffd071] hover:shadow-[0_16px_50px_rgba(244,181,68,0.35)] hover:-translate-y-0.5 inline-block text-center"
                 >
                   Open Dashboard
                 </Link>
               ) : (
                 <>
-                  <button
-                    onClick={startSwiggyLogin}
-                    disabled={authLoading || backendOffline}
-                    className="rounded-xl bg-[#f4b544] px-7 py-3.5 text-sm font-black text-[#17211c] shadow-[0_12px_40px_rgba(244,181,68,0.25)] transition-all duration-200 hover:bg-[#ffd071] hover:shadow-[0_16px_50px_rgba(244,181,68,0.35)] hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                  <Link
+                    href="/app/nutriorder"
+                    className="rounded-xl bg-[#f4b544] px-7 py-3.5 text-sm font-black text-[#17211c] shadow-[0_12px_40px_rgba(244,181,68,0.25)] transition-all duration-200 hover:bg-[#ffd071] hover:shadow-[0_16px_50px_rgba(244,181,68,0.35)] hover:-translate-y-0.5 inline-block text-center"
                   >
-                    {authLoading ? "Starting Swiggy Login" : "Continue with Swiggy"}
-                  </button>
+                    Get Started Free
+                  </Link>
                   {showDemoCTA && (
                     <button
                       onClick={startDemo}
@@ -360,6 +343,15 @@ export default function LandingPage() {
           </div>
         </div>
 
+        <div className="mt-8">
+          <Link
+            href="/app/nutriorder"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#2f6f5e] px-6 py-3 text-sm font-black text-white shadow-lg transition-all duration-200 hover:bg-[#1f7a5c] hover:-translate-y-0.5"
+          >
+            Try NutriOrder AI <span aria-hidden>→</span>
+          </Link>
+        </div>
+
         {/* NutriOrder Key Features Grid */}
         <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
@@ -488,6 +480,15 @@ export default function LandingPage() {
           </div>
         </div>
 
+        <div className="mt-8">
+          <Link
+            href="/app/smartpantry"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#b24f3d] px-6 py-3 text-sm font-black text-white shadow-lg transition-all duration-200 hover:bg-[#b45c2e] hover:-translate-y-0.5"
+          >
+            Try SmartPantry AI <span aria-hidden>→</span>
+          </Link>
+        </div>
+
         {/* SmartPantry Key Features Grid */}
         <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[
@@ -590,7 +591,8 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-5">
             <Link href="/pitch" className="text-white/40 hover:text-white/70 transition-colors">Demo</Link>
-            <Link href="/app" className="text-white/40 hover:text-white/70 transition-colors">Dashboard</Link>
+            <Link href="/app/nutriorder" className="text-white/40 hover:text-white/70 transition-colors">NutriOrder AI</Link>
+            <Link href="/app/smartpantry" className="text-white/40 hover:text-white/70 transition-colors">SmartPantry AI</Link>
             <a href="https://github.com/samadarsh/BiteWise" target="_blank" rel="noopener noreferrer" className="text-white/40 hover:text-white/70 transition-colors">GitHub</a>
           </div>
           <p className="text-white/30">© 2025 BiteWise</p>
