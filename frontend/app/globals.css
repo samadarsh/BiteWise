@@ -1,48 +1,144 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Manual dark mode: driven by a `.dark` class on <html> (set by ThemeProvider),
+   not just the OS preference — so the in-app toggle works. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─────────────────────────────────────────────────────────────
+   Design tokens — semantic, theme-aware.
+   Light = BiteWise warm premium palette (matches the landing).
+   Dark  = refined near-black slate (matches the existing app look).
+   ───────────────────────────────────────────────────────────── */
+:root,
+:root[data-theme="light"] {
+  --bg: #f4f1e9;
+  --bg-elevated: #efeadd;
+  --surface: #ffffff;
+  --surface-2: #faf7f0;
+  --surface-3: #f3eee2;
+  --border: #e5dfd0;
+  --border-strong: #d6cdbd;
+
+  --text: #17211c;
+  --text-muted: #55605a;
+  --text-subtle: #8a897d;
+
+  --brand: #e0982a;          /* gold, darkened for AA on light */
+  --brand-contrast: #17211c;
+
+  --nutri: #1f7a5c;          /* NutriOrder accent (green) */
+  --nutri-contrast: #ffffff;
+  --pantry: #b45c2e;         /* SmartPantry accent (terracotta) */
+  --pantry-contrast: #ffffff;
+
+  --success: #1f7a5c;
+  --warning: #b7791f;
+  --danger: #c0392b;
+  --info: #4a5aa8;
+
+  --ring: #1f7a5c;
 }
 
+:root[data-theme="dark"],
+.dark {
+  --bg: #080b10;
+  --bg-elevated: #0c1017;
+  --surface: #111826;
+  --surface-2: #0c121c;
+  --surface-3: #0a0f18;
+  --border: #1e293b;
+  --border-strong: #2a3a52;
+
+  --text: #e6edf3;
+  --text-muted: #94a3b8;
+  --text-subtle: #64748b;
+
+  --brand: #f4b544;
+  --brand-contrast: #17211c;
+
+  --nutri: #34d399;
+  --nutri-contrast: #04120c;
+  --pantry: #fbbf24;
+  --pantry-contrast: #1a1205;
+
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+  --info: #818cf8;
+
+  --ring: #34d399;
+}
+
+/* Expose tokens to Tailwind utilities: bg-surface, text-muted, border-border,
+   text-nutri, bg-pantry, bg-brand, etc. */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: var(--bg);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-subtle: var(--text-subtle);
+
+  --color-brand: var(--brand);
+  --color-brand-contrast: var(--brand-contrast);
+  --color-nutri: var(--nutri);
+  --color-nutri-contrast: var(--nutri-contrast);
+  --color-pantry: var(--pantry);
+  --color-pantry-contrast: var(--pantry-contrast);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-/* Smooth scrolling for anchor links */
 html {
   scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* Custom scrollbar for dark sections */
+/* Keyboard focus ring (accessibility). */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
+  background: color-mix(in srgb, var(--text-subtle) 45%, transparent);
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: color-mix(in srgb, var(--text-subtle) 70%, transparent);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out;
 }

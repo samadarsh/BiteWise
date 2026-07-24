@@ -47,7 +47,7 @@ export default function NextMealSuggestion({ onSelectMeal }: NextMealSuggestionP
         is_estimated: c.is_estimated !== false,
         restaurant_id: c.restaurant_id,
         item_id: c.item_id,
-        distance_km: c.distance_km as number | undefined
+        distance_km: c.distance_km as number | undefined,
       }));
       setSuggestions(mapped);
     } catch (err) {
@@ -59,30 +59,30 @@ export default function NextMealSuggestion({ onSelectMeal }: NextMealSuggestionP
   };
 
   return (
-    <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-4 flex flex-col gap-3">
+    <div className="bg-surface-2 border border-border rounded-xl p-4 flex flex-col gap-3">
       <div className="flex justify-between items-center">
-        <span className="text-xs text-slate-500 font-bold uppercase tracking-wider text-[10px]">💡 Next Meal Adviser</span>
-        {loading && (
-          <span className="text-[10px] text-indigo-400 font-mono animate-pulse">Analyzing...</span>
-        )}
+        <span className="text-subtle font-bold uppercase tracking-wider text-[10px]">💡 Next Meal Adviser</span>
+        {loading && <span className="text-[10px] text-info font-mono animate-pulse">Analyzing…</span>}
       </div>
 
       <button
         onClick={handleFetchNextMeal}
         disabled={loading}
-        className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-900 disabled:text-slate-600 text-slate-100 font-bold py-2.5 rounded-lg text-xs transition uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/10"
+        className="w-full bg-info hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-lg text-xs transition uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm"
       >
-        {loading ? "Generating suggestions..." : "Suggest My Next Meal"}
+        {loading ? "Generating suggestions…" : "Suggest My Next Meal"}
       </button>
 
       {message && (
-        <div className={`p-2.5 rounded-lg text-[11px] leading-relaxed border ${
-          targetMet 
-            ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-400"
-            : message.includes("required") || message.includes("failed")
-            ? "bg-rose-500/5 border-rose-500/20 text-rose-400"
-            : "bg-slate-900 border-slate-800 text-slate-300"
-        }`}>
+        <div
+          className={`p-2.5 rounded-lg text-[11px] leading-relaxed border ${
+            targetMet
+              ? "bg-success/10 border-success/20 text-success"
+              : message.includes("required") || message.includes("failed")
+              ? "bg-danger/10 border-danger/20 text-danger"
+              : "bg-surface border-border text-muted"
+          }`}
+        >
           {message}
         </div>
       )}
@@ -93,24 +93,20 @@ export default function NextMealSuggestion({ onSelectMeal }: NextMealSuggestionP
             <div
               key={meal.id}
               onClick={() => onSelectMeal(meal)}
-              className="group flex flex-col gap-2 p-3 rounded-xl border border-slate-800 bg-slate-950/60 hover:border-slate-700 cursor-pointer transition text-left"
+              className="group flex flex-col gap-2 p-3 rounded-xl border border-border bg-surface hover:border-border-strong cursor-pointer transition text-left"
             >
               <div className="flex justify-between items-start gap-1">
                 <div>
-                  <h5 className="font-semibold text-slate-200 text-xs leading-snug group-hover:text-indigo-400 transition">
-                    {meal.name}
-                  </h5>
-                  <p className="text-[10px] text-slate-500 mt-0.5">🏪 {meal.restaurant}</p>
+                  <h5 className="font-semibold text-text text-xs leading-snug group-hover:text-info transition">{meal.name}</h5>
+                  <p className="text-[10px] text-subtle mt-0.5">🏪 {meal.restaurant}</p>
                 </div>
-                <span className="bg-indigo-500/10 text-indigo-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full font-mono">
-                  {Math.round(meal.score)}% fit
-                </span>
+                <span className="bg-info/10 text-info text-[10px] font-bold px-1.5 py-0.5 rounded-full font-mono">{Math.round(meal.score)}% fit</span>
               </div>
-              <div className="flex justify-between items-center text-[10px] text-slate-400 border-t border-slate-900 pt-1.5">
-                <span className="font-mono text-[9px] text-slate-500">
+              <div className="flex justify-between items-center text-[10px] text-muted border-t border-border pt-1.5">
+                <span className="font-mono text-[9px] text-subtle">
                   {meal.calories} | {meal.protein}
                 </span>
-                <span className="font-bold text-slate-300">Rs {meal.price}</span>
+                <span className="font-bold text-text">Rs {meal.price}</span>
               </div>
             </div>
           ))}

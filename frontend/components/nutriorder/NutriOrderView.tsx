@@ -14,6 +14,15 @@ import { SwiggyConnectionCard } from "../SwiggyConnectionCard";
 import { useAuth } from "../../lib/auth-context";
 import { useDashboard } from "../../lib/dashboard-context";
 
+function Spinner({ className = "" }: { className?: string }) {
+  return (
+    <svg className={`animate-spin ${className}`} fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+    </svg>
+  );
+}
+
 export default function NutriOrderView() {
   const { user: authUser, isAuthenticated } = useAuth();
   const { dataVersion, showAlert, editProfileRequested, clearEditProfileRequest } = useDashboard();
@@ -178,6 +187,26 @@ export default function NutriOrderView() {
     }
   };
 
+  const mapCandidates = (rawCandidates: NonNullable<Awaited<ReturnType<typeof api.searchRecommendations>>["results"]["recommendations"]>) =>
+    rawCandidates.map((c) => ({
+      id: c.item_id,
+      name: c.name || c.item_name || "Recommended meal",
+      restaurant: c.restaurant_name || "Unknown Restaurant",
+      price: c.price,
+      eta: `${c.delivery_time_min || 30} mins`,
+      protein: `${c.protein_g || 0}g`,
+      calories: c.calories ? `${c.calories} kcal` : "N/A",
+      score: c.match_score || 80,
+      reasons: c.explanations || ["Fits nutritional criteria."],
+      why_this_meal: c.why_this_meal || [],
+      tradeoffs: c.tradeoffs || [],
+      confidence: c.confidence || 1.0,
+      is_estimated: c.is_estimated !== false,
+      restaurant_id: c.restaurant_id,
+      item_id: c.item_id,
+      distance_km: c.distance_km as number | undefined,
+    }));
+
   const handleQuerySearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!activeSessionId) {
@@ -188,26 +217,7 @@ export default function NutriOrderView() {
     try {
       const res = await api.searchRecommendations(activeSessionId, searchQuery, priorityWeights);
       setSessionStatus(res.status);
-      const rawCandidates = res.results.recommendations || [];
-      const mapped = rawCandidates.map((c) => ({
-        id: c.item_id,
-        name: c.name || c.item_name || "Recommended meal",
-        restaurant: c.restaurant_name || "Unknown Restaurant",
-        price: c.price,
-        eta: `${c.delivery_time_min || 30} mins`,
-        protein: `${c.protein_g || 0}g`,
-        calories: c.calories ? `${c.calories} kcal` : "N/A",
-        score: c.match_score || 80,
-        reasons: c.explanations || ["Fits nutritional criteria."],
-        why_this_meal: c.why_this_meal || [],
-        tradeoffs: c.tradeoffs || [],
-        confidence: c.confidence || 1.0,
-        is_estimated: c.is_estimated !== false,
-        restaurant_id: c.restaurant_id,
-        item_id: c.item_id,
-        distance_km: c.distance_km as number | undefined,
-      }));
-      setRecommendations(mapped);
+      setRecommendations(mapCandidates(res.results.recommendations || []));
       setRelaxationOptions(res.results.relaxation_options || []);
       setSelectedMeal(null);
       setCartPreview(null);
@@ -355,26 +365,7 @@ export default function NutriOrderView() {
     try {
       const res = await api.searchRecommendations(activeSessionId, searchQuery, priorityWeights, patch);
       setSessionStatus(res.status);
-      const rawCandidates = res.results.recommendations || [];
-      const mapped = rawCandidates.map((c) => ({
-        id: c.item_id,
-        name: c.name || c.item_name || "Recommended meal",
-        restaurant: c.restaurant_name || "Unknown Restaurant",
-        price: c.price,
-        eta: `${c.delivery_time_min || 30} mins`,
-        protein: `${c.protein_g || 0}g`,
-        calories: c.calories ? `${c.calories} kcal` : "N/A",
-        score: c.match_score || 80,
-        reasons: c.explanations || ["Fits nutritional criteria."],
-        why_this_meal: c.why_this_meal || [],
-        tradeoffs: c.tradeoffs || [],
-        confidence: c.confidence || 1.0,
-        is_estimated: c.is_estimated !== false,
-        restaurant_id: c.restaurant_id,
-        item_id: c.item_id,
-        distance_km: c.distance_km as number | undefined,
-      }));
-      setRecommendations(mapped);
+      setRecommendations(mapCandidates(res.results.recommendations || []));
       setRelaxationOptions(res.results.relaxation_options || []);
       setSelectedMeal(null);
       setCartPreview(null);
@@ -417,11 +408,8 @@ export default function NutriOrderView() {
   if (profileFetching) {
     return (
       <main className="max-w-xl w-full mx-auto px-4 py-16 flex flex-col items-center justify-center text-center">
-        <svg className="animate-spin h-10 w-10 text-emerald-400 mb-3" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-        </svg>
-        <p className="text-sm font-semibold text-slate-300">Loading user profile & biometrics...</p>
+        <Spinner className="h-10 w-10 text-nutri mb-3" />
+        <p className="text-sm font-semibold text-muted">Loading your profile &amp; nutrition targets…</p>
       </main>
     );
   }
@@ -455,76 +443,75 @@ export default function NutriOrderView() {
   if (placedOrderId) {
     return (
       <main className="max-w-4xl w-full mx-auto">
-        <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-2xl p-4 sm:p-8 shadow-xl flex flex-col gap-5 sm:gap-8">
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 border-b border-slate-800 pb-4 sm:pb-6">
+        <div className="bg-surface border border-border rounded-2xl p-4 sm:p-8 shadow-lg flex flex-col gap-5 sm:gap-8">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 border-b border-border pb-4 sm:pb-6">
             <div>
-              <span className="text-[10px] sm:text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full uppercase tracking-wider">Order Dispatching</span>
-              <h2 className="text-lg sm:text-2xl font-bold mt-2">Tracking {placedOrderId}</h2>
-              <p className="text-[10px] sm:text-xs text-slate-500 mt-1 font-mono">Status: {sessionStatus}</p>
+              <span className="text-[10px] sm:text-xs bg-nutri/10 text-nutri border border-nutri/20 font-bold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full uppercase tracking-wider">Order In Progress</span>
+              <h2 className="text-lg sm:text-2xl font-bold mt-2 text-text">Tracking {placedOrderId}</h2>
             </div>
             <div className="sm:text-right">
-              <p className="text-[10px] sm:text-xs text-slate-400">Estimated Delivery Time</p>
-              <p className="text-xl sm:text-2xl font-bold text-emerald-400">{selectedMeal?.eta || "25 mins"}</p>
+              <p className="text-[10px] sm:text-xs text-muted">Estimated Delivery Time</p>
+              <p className="text-xl sm:text-2xl font-bold text-nutri">{selectedMeal?.eta || "25 mins"}</p>
             </div>
           </div>
 
           <div className="relative w-full my-2 sm:my-4 px-1 sm:px-8 overflow-visible">
-            <div className="absolute left-[12.5%] right-[12.5%] top-4 sm:top-5 h-1 bg-slate-800 rounded-full" />
-            <div className="absolute left-[12.5%] top-4 sm:top-5 h-1 bg-emerald-500 rounded-full transition-all duration-1000" style={{ width: `${Math.min(75, Math.max(0, (trackingStep / 3) * 75))}%` }} />
+            <div className="absolute left-[12.5%] right-[12.5%] top-4 sm:top-5 h-1 bg-border rounded-full" />
+            <div className="absolute left-[12.5%] top-4 sm:top-5 h-1 bg-nutri rounded-full transition-all duration-1000" style={{ width: `${Math.min(75, Math.max(0, (trackingStep / 3) * 75))}%` }} />
             <div className="relative z-10 grid grid-cols-4 gap-0">
               {[
-                { label: "Placed", desc: "Sent to Staging MCP" },
-                { label: "Accepted", desc: "Restaurant Confirmed" },
-                { label: "Preparing", desc: "Culinary Macro Check" },
-                { label: "Arriving", desc: "Staging Arrival" },
+                { label: "Placed", desc: "Order sent to Swiggy" },
+                { label: "Accepted", desc: "Restaurant confirmed" },
+                { label: "Preparing", desc: "Meal being cooked" },
+                { label: "Arriving", desc: "Out for delivery" },
               ].map((step, idx) => {
                 const active = trackingStep >= idx;
                 const isCurrent = trackingStep === idx && trackingStep < 3;
                 return (
                   <div key={idx} className="flex min-w-0 flex-col items-center text-center">
-                    <div className={`relative z-10 h-8 w-8 sm:h-10 sm:w-10 rounded-full flex items-center justify-center font-bold text-[10px] sm:text-xs border-2 transition-all duration-500 ${active ? "bg-emerald-500 border-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/30" : "bg-slate-900 border-slate-700 text-slate-600"} ${isCurrent ? "ring-2 ring-emerald-500/30 ring-offset-2 ring-offset-slate-900" : ""}`}>
+                    <div className={`relative z-10 h-8 w-8 sm:h-10 sm:w-10 rounded-full flex items-center justify-center font-bold text-[10px] sm:text-xs border-2 transition-all duration-500 ${active ? "bg-nutri border-nutri text-nutri-contrast shadow-md" : "bg-surface-2 border-border-strong text-subtle"} ${isCurrent ? "ring-2 ring-nutri/30 ring-offset-2 ring-offset-surface" : ""}`}>
                       {active && trackingStep > idx ? (
                         <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
                       ) : isCurrent ? (
-                        <div className="h-2 w-2 sm:h-2.5 sm:w-2.5 bg-slate-950 rounded-full animate-pulse" />
+                        <div className="h-2 w-2 sm:h-2.5 sm:w-2.5 bg-nutri-contrast rounded-full animate-pulse" />
                       ) : (
                         idx + 1
                       )}
                     </div>
-                    <p className={`max-w-full truncate text-[10px] sm:text-xs font-semibold mt-2 sm:mt-3 ${active ? "text-slate-200" : "text-slate-600"}`}>{step.label}</p>
-                    <p className="text-[8px] sm:text-[10px] text-slate-500 max-w-[70px] sm:max-w-[100px] mt-0.5 leading-tight hidden sm:block">{step.desc}</p>
+                    <p className={`max-w-full truncate text-[10px] sm:text-xs font-semibold mt-2 sm:mt-3 ${active ? "text-text" : "text-subtle"}`}>{step.label}</p>
+                    <p className="text-[8px] sm:text-[10px] text-subtle max-w-[70px] sm:max-w-[100px] mt-0.5 leading-tight hidden sm:block">{step.desc}</p>
                   </div>
                 );
               })}
             </div>
           </div>
 
-          <div className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-4 sm:p-5 flex flex-col gap-3 sm:gap-4 mt-2 sm:mt-4">
-            <h3 className="text-xs sm:text-sm font-bold text-slate-300">Order Summary</h3>
-            <div className="flex justify-between items-center text-sm border-b border-slate-800/50 pb-3">
+          <div className="bg-surface-2 border border-border rounded-xl p-4 sm:p-5 flex flex-col gap-3 sm:gap-4 mt-2 sm:mt-4">
+            <h3 className="text-xs sm:text-sm font-bold text-text">Order Summary</h3>
+            <div className="flex justify-between items-center text-sm border-b border-border pb-3">
               <div>
-                <p className="font-semibold text-slate-200 text-xs sm:text-sm">{selectedMeal?.name}</p>
-                <p className="text-[10px] sm:text-xs text-slate-500">{selectedMeal?.restaurant}</p>
+                <p className="font-semibold text-text text-xs sm:text-sm">{selectedMeal?.name}</p>
+                <p className="text-[10px] sm:text-xs text-subtle">{selectedMeal?.restaurant}</p>
               </div>
-              <p className="font-bold text-emerald-400 text-sm sm:text-base">Rs {selectedMeal?.price}</p>
+              <p className="font-bold text-nutri text-sm sm:text-base">Rs {selectedMeal?.price}</p>
             </div>
             <div className="grid grid-cols-3 gap-2 sm:gap-4 text-center">
-              <div className="bg-slate-900 border border-slate-800/50 rounded-lg p-2 sm:p-2.5">
-                <p className="text-[8px] sm:text-[10px] text-slate-500 uppercase font-bold tracking-wider">Macros Met</p>
-                <p className="text-xs sm:text-sm font-bold text-slate-300 mt-0.5 sm:mt-1">100% Correct</p>
+              <div className="bg-surface border border-border rounded-lg p-2 sm:p-2.5">
+                <p className="text-[8px] sm:text-[10px] text-subtle uppercase font-bold tracking-wider">Macros Met</p>
+                <p className="text-xs sm:text-sm font-bold text-text mt-0.5 sm:mt-1">100%</p>
               </div>
-              <div className="bg-slate-900 border border-slate-800/50 rounded-lg p-2 sm:p-2.5">
-                <p className="text-[8px] sm:text-[10px] text-slate-500 uppercase font-bold tracking-wider">Protein Total</p>
-                <p className="text-xs sm:text-sm font-bold text-emerald-400 mt-0.5 sm:mt-1">{selectedMeal?.protein}</p>
+              <div className="bg-surface border border-border rounded-lg p-2 sm:p-2.5">
+                <p className="text-[8px] sm:text-[10px] text-subtle uppercase font-bold tracking-wider">Protein Total</p>
+                <p className="text-xs sm:text-sm font-bold text-nutri mt-0.5 sm:mt-1">{selectedMeal?.protein}</p>
               </div>
-              <div className="bg-slate-900 border border-slate-800/50 rounded-lg p-2 sm:p-2.5">
-                <p className="text-[8px] sm:text-[10px] text-slate-500 uppercase font-bold tracking-wider">Calories</p>
-                <p className="text-xs sm:text-sm font-bold text-blue-400 mt-0.5 sm:mt-1">{selectedMeal?.calories}</p>
+              <div className="bg-surface border border-border rounded-lg p-2 sm:p-2.5">
+                <p className="text-[8px] sm:text-[10px] text-subtle uppercase font-bold tracking-wider">Calories</p>
+                <p className="text-xs sm:text-sm font-bold text-info mt-0.5 sm:mt-1">{selectedMeal?.calories}</p>
               </div>
             </div>
           </div>
 
-          <button onClick={handleReset} className="mt-2 sm:mt-6 self-center bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold px-5 sm:px-6 py-2.5 rounded-lg text-xs sm:text-sm transition-all">Order Something Else</button>
+          <button onClick={handleReset} className="mt-2 sm:mt-6 self-center bg-surface-2 hover:bg-surface-3 border border-border text-text font-semibold px-5 sm:px-6 py-2.5 rounded-lg text-xs sm:text-sm transition-all">Order Something Else</button>
         </div>
 
         {showFeedbackModal && (
@@ -550,26 +537,26 @@ export default function NutriOrderView() {
           <PriorityControls weights={priorityWeights} onChange={setPriorityWeights} />
 
           {/* Step 1: Address Selection */}
-          <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-4">
+          <section className="bg-surface border border-border rounded-xl p-5 shadow-sm flex flex-col gap-4">
             <div className="flex justify-between items-center">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">1. Address Selection</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-nutri">1. Delivery Address</h3>
               {selectedAddress && (
-                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-semibold px-2 py-0.5 rounded border border-emerald-500/20">Sess: {activeSessionId.substr(-6)}</span>
+                <span className="text-[10px] bg-nutri/10 text-nutri font-semibold px-2 py-0.5 rounded border border-nutri/20">Session active</span>
               )}
             </div>
             <div className="flex flex-col gap-3">
               {addresses.length === 0 ? (
-                <p className="text-xs text-slate-500 text-center py-4">No addresses found.</p>
+                <p className="text-xs text-subtle text-center py-4">No addresses found.</p>
               ) : (
                 addresses.map((addr) => {
                   const isChosen = selectedAddress === addr.id;
                   return (
-                    <div key={addr.id} onClick={() => handleAddressSelect(addr.id)} className={`cursor-pointer border rounded-lg p-3 flex flex-col gap-1 transition ${isChosen ? "bg-slate-950/80 border-emerald-500 shadow-md shadow-emerald-500/5" : "bg-slate-950/20 border-slate-800 hover:border-slate-700"}`}>
+                    <div key={addr.id} onClick={() => handleAddressSelect(addr.id)} className={`cursor-pointer border rounded-lg p-3 flex flex-col gap-1 transition ${isChosen ? "bg-surface-2 border-nutri shadow-sm" : "bg-surface-2/50 border-border hover:border-border-strong"}`}>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-bold text-slate-300">{addr.label}</span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400">Saved Address</span>
+                        <span className="text-sm font-bold text-text">{addr.label}</span>
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-nutri/10 text-nutri">Saved Address</span>
                       </div>
-                      <p className="text-xs text-slate-500 leading-relaxed mt-1">{addr.display_text}</p>
+                      <p className="text-xs text-muted leading-relaxed mt-1">{addr.display_text}</p>
                     </div>
                   );
                 })
@@ -578,25 +565,25 @@ export default function NutriOrderView() {
           </section>
 
           {/* Step 2: Goal & Preferences Setup */}
-          <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-5">
+          <section className="bg-surface border border-border rounded-xl p-5 shadow-sm flex flex-col gap-5">
             <div className="flex justify-between items-center">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">2. Nutritional Profile</h3>
-              <button onClick={() => setEditingProfile(true)} className="text-[10px] text-emerald-400 hover:underline">Edit Biometrics ⚙️</button>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-nutri">2. Nutritional Profile</h3>
+              <button onClick={() => setEditingProfile(true)} className="text-[10px] text-nutri hover:underline">Edit Biometrics ⚙️</button>
             </div>
-            <div className="bg-slate-950/80 rounded-xl p-4 border border-slate-900 text-xs text-slate-400 flex flex-col gap-2">
-              <p className="font-bold text-slate-300">Biometric Targets Engine:</p>
+            <div className="bg-surface-2 rounded-xl p-4 border border-border text-xs text-muted flex flex-col gap-2">
+              <p className="font-bold text-text">Biometric Targets Engine:</p>
               <div className="grid grid-cols-2 gap-2 text-[11px] mt-1">
-                <p>Daily Calories: <strong className="text-blue-400">{profile?.daily_calories || calorieTarget * 3} kcal</strong></p>
-                <p>Meal Calories: <strong className="text-blue-400">{calorieTarget} kcal</strong></p>
-                <p>Daily Protein: <strong className="text-emerald-400">{profile?.daily_protein || proteinTarget * 3}g</strong></p>
-                <p>Meal Protein: <strong className="text-emerald-400">{proteinTarget}g</strong></p>
+                <p>Daily Calories: <strong className="text-info">{profile?.daily_calories || calorieTarget * 3} kcal</strong></p>
+                <p>Meal Calories: <strong className="text-info">{calorieTarget} kcal</strong></p>
+                <p>Daily Protein: <strong className="text-nutri">{profile?.daily_protein || proteinTarget * 3}g</strong></p>
+                <p>Meal Protein: <strong className="text-nutri">{proteinTarget}g</strong></p>
               </div>
-              <p className="text-[10px] text-slate-500 mt-1 italic">
+              <p className="text-[10px] text-subtle mt-1 italic">
                 Reasoning: {profile?.fitness_goal ? (profile.fitness_goal === "fat_loss" ? "High protein calorie deficit" : profile.fitness_goal === "muscle_gain" ? "Hypertrophic calorie surplus" : "Iso-caloric maintenance") : "Default weights active."}
               </p>
             </div>
             <div>
-              <label className="block text-xs text-slate-400 font-semibold mb-2">Goal Override</label>
+              <label className="block text-xs text-muted font-semibold mb-2">Goal Override</label>
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { id: "muscle_gain", label: "💪 Bulking" },
@@ -618,7 +605,7 @@ export default function NutriOrderView() {
                         setCalorieTarget(cal);
                         syncProfileChange(goal.id, prot, cal, allergies);
                       }}
-                      className={`text-xs font-semibold py-2 px-1 rounded-lg border transition ${active ? "bg-emerald-500 border-emerald-400 text-slate-950 font-bold" : "bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-800"}`}
+                      className={`text-xs font-semibold py-2 px-1 rounded-lg border transition ${active ? "bg-nutri border-nutri text-nutri-contrast font-bold" : "bg-surface-2 border-border text-muted hover:border-border-strong"}`}
                     >
                       {goal.label}
                     </button>
@@ -629,26 +616,26 @@ export default function NutriOrderView() {
             <div className="flex flex-col gap-4">
               <div>
                 <div className="flex justify-between items-center mb-1.5">
-                  <label className="text-xs text-slate-400">Min Protein Target</label>
-                  <span className="text-xs font-bold text-emerald-400">{proteinTarget}g</span>
+                  <label className="text-xs text-muted">Min Protein Target</label>
+                  <span className="text-xs font-bold text-nutri">{proteinTarget}g</span>
                 </div>
-                <input type="range" min="15" max="60" value={proteinTarget} onChange={(e) => { const v = Number(e.target.value); setProteinTarget(v); syncProfileChange(fitnessGoal, v, calorieTarget, allergies); }} className="w-full accent-emerald-500 cursor-pointer" />
+                <input type="range" min="15" max="60" value={proteinTarget} onChange={(e) => { const v = Number(e.target.value); setProteinTarget(v); syncProfileChange(fitnessGoal, v, calorieTarget, allergies); }} className="w-full accent-nutri cursor-pointer" />
               </div>
               <div>
                 <div className="flex justify-between items-center mb-1.5">
-                  <label className="text-xs text-slate-400">Max Calorie Ceiling</label>
-                  <span className="text-xs font-bold text-blue-400">{calorieTarget} kcal</span>
+                  <label className="text-xs text-muted">Max Calorie Ceiling</label>
+                  <span className="text-xs font-bold text-info">{calorieTarget} kcal</span>
                 </div>
-                <input type="range" min="350" max="1000" value={calorieTarget} onChange={(e) => { const v = Number(e.target.value); setCalorieTarget(v); syncProfileChange(fitnessGoal, proteinTarget, v, allergies); }} className="w-full accent-blue-500 cursor-pointer" />
+                <input type="range" min="350" max="1000" value={calorieTarget} onChange={(e) => { const v = Number(e.target.value); setCalorieTarget(v); syncProfileChange(fitnessGoal, proteinTarget, v, allergies); }} className="w-full accent-info cursor-pointer" />
               </div>
             </div>
             <div>
-              <label className="block text-xs text-slate-400 font-semibold mb-2">Exclusion / Allergies Filters</label>
+              <label className="block text-xs text-muted font-semibold mb-2">Exclusions / Allergies</label>
               <div className="flex flex-wrap gap-2">
                 {["Gluten", "Dairy", "Nuts", "Soy", "Shellfish"].map((allergen) => {
                   const selected = allergies.includes(allergen);
                   return (
-                    <button key={allergen} onClick={() => handleAllergyToggle(allergen)} className={`text-xs px-2.5 py-1 rounded-full border transition ${selected ? "bg-rose-500/10 border-rose-500 text-rose-300" : "bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-850"}`}>
+                    <button key={allergen} onClick={() => handleAllergyToggle(allergen)} className={`text-xs px-2.5 py-1 rounded-full border transition ${selected ? "bg-danger/10 border-danger text-danger" : "bg-surface-2 border-border text-muted hover:border-border-strong"}`}>
                       {selected ? `❌ ${allergen}` : allergen}
                     </button>
                   );
@@ -658,20 +645,20 @@ export default function NutriOrderView() {
           </section>
 
           {/* Step 3: Order Assistant */}
-          <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">3. Order Assistant</h3>
+          <section className="bg-surface border border-border rounded-xl p-5 shadow-sm flex flex-col gap-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-nutri">3. Order Assistant</h3>
             <form onSubmit={handleQuerySearch} className="flex flex-col gap-3">
-              <textarea rows={2} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="e.g. High protein Paneer lunch with broccoli under Rs 300" className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl p-3 text-sm text-slate-200 placeholder-slate-600 focus:outline-none transition resize-none font-sans" />
+              <textarea rows={2} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="e.g. High protein Paneer lunch with broccoli under Rs 300" className="w-full bg-surface-2 border border-border focus:border-nutri rounded-xl p-3 text-sm text-text placeholder:text-subtle focus:outline-none transition resize-none font-sans" />
               <div className="flex flex-wrap gap-1.5">
                 {["high protein grilled chicken", "veg lunch under 600 kcal", "keto friendly dinner"].map((temp) => (
-                  <button key={temp} type="button" onClick={() => setSearchQuery(temp)} className="text-[10px] bg-slate-950 border border-slate-800 text-slate-500 hover:text-slate-400 hover:border-slate-700 px-2 py-1 rounded transition">💡 {temp}</button>
+                  <button key={temp} type="button" onClick={() => setSearchQuery(temp)} className="text-[10px] bg-surface-2 border border-border text-subtle hover:text-muted hover:border-border-strong px-2 py-1 rounded transition">💡 {temp}</button>
                 ))}
               </div>
-              <button type="submit" disabled={searchLoading || !selectedAddress} className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-800 text-slate-950 font-bold py-2.5 rounded-xl transition text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/10">
+              <button type="submit" disabled={searchLoading || !selectedAddress} className="w-full bg-nutri hover:brightness-105 disabled:opacity-50 disabled:cursor-not-allowed text-nutri-contrast font-bold py-2.5 rounded-xl transition text-sm flex items-center justify-center gap-2 shadow-md">
                 {searchLoading ? (
                   <>
-                    <svg className="animate-spin h-4 w-4 text-slate-950" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
-                    Running AI Engine...
+                    <Spinner className="h-4 w-4 text-nutri-contrast" />
+                    Finding your best meals…
                   </>
                 ) : (
                   "Find Recommended Meal"
@@ -683,15 +670,15 @@ export default function NutriOrderView() {
 
         {/* Middle Column: Recommendations & Checkout */}
         <div className="xl:col-span-4 flex flex-col gap-8">
-          <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex-1 flex flex-col gap-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">4. AI Meal Recommendations</h3>
+          <section className="bg-surface border border-border rounded-xl p-5 shadow-sm flex-1 flex flex-col gap-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-nutri">4. AI Meal Recommendations</h3>
             <RelaxationOptions options={relaxationOptions} onApplyPatch={handleRelaxationApply} loading={searchLoading} />
             {searchLoading ? (
               <LoadingSkeleton />
             ) : recommendations.length === 0 ? (
-              <div className="flex-1 border border-dashed border-slate-800/80 rounded-xl flex flex-col items-center justify-center p-8 text-center text-slate-500 gap-2">
+              <div className="flex-1 border border-dashed border-border-strong rounded-xl flex flex-col items-center justify-center p-8 text-center text-subtle gap-2">
                 <span className="text-3xl">🍲</span>
-                <p className="text-sm">Select address and submit query to run recommendation pipeline.</p>
+                <p className="text-sm">Select a delivery address, then describe what you feel like eating.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-4">
@@ -702,45 +689,45 @@ export default function NutriOrderView() {
             )}
           </section>
 
-          <section className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-4">
+          <section className="bg-surface border border-border rounded-xl p-5 shadow-sm flex flex-col gap-4">
             <div className="flex justify-between items-center">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">5. Staging Cart Review</h3>
-              {cartLoading && <span className="text-[10px] text-emerald-400 font-mono animate-pulse">Syncing...</span>}
+              <h3 className="text-xs font-bold uppercase tracking-wider text-nutri">5. Cart Review</h3>
+              {cartLoading && <span className="text-[10px] text-nutri font-mono animate-pulse">Syncing…</span>}
             </div>
             {!selectedMeal ? (
-              <p className="text-xs text-slate-500 text-center py-4">Select a meal recommendation card above to review checkout parameters.</p>
+              <p className="text-xs text-subtle text-center py-4">Select a meal above to review your cart and checkout details.</p>
             ) : cartLoading ? (
               <div className="flex items-center justify-center py-6 gap-2">
-                <svg className="animate-spin h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
-                <span className="text-xs text-slate-500 font-mono">Synchronizing Swiggy cart...</span>
+                <Spinner className="h-5 w-5 text-nutri" />
+                <span className="text-xs text-subtle font-mono">Synchronizing Swiggy cart…</span>
               </div>
             ) : (
               <div className="flex flex-col gap-4">
-                <div className="bg-slate-950/80 rounded-xl p-4 border border-slate-800 text-sm flex flex-col gap-2">
-                  <div className="flex justify-between"><span className="text-slate-500">Item Selected:</span><span className="font-semibold text-slate-200">{selectedMeal.name}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Restaurant:</span><span className="font-semibold text-slate-200">{cartPreview?.restaurantName || selectedMeal.restaurant}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Payment:</span><span className="font-semibold text-slate-200">Cash On Delivery (COD)</span></div>
+                <div className="bg-surface-2 rounded-xl p-4 border border-border text-sm flex flex-col gap-2">
+                  <div className="flex justify-between"><span className="text-muted">Item Selected:</span><span className="font-semibold text-text">{selectedMeal.name}</span></div>
+                  <div className="flex justify-between"><span className="text-muted">Restaurant:</span><span className="font-semibold text-text">{cartPreview?.restaurantName || selectedMeal.restaurant}</span></div>
+                  <div className="flex justify-between"><span className="text-muted">Payment:</span><span className="font-semibold text-text">Cash On Delivery (COD)</span></div>
                   {cartPreview && cartPreview.discount_amount && cartPreview.discount_amount > 0 ? (
-                    <div className="flex justify-between text-xs text-emerald-400"><span>Coupon Discount ({cartPreview.applied_coupon}):</span><span>- Rs {cartPreview.discount_amount}</span></div>
+                    <div className="flex justify-between text-xs text-nutri"><span>Coupon Discount ({cartPreview.applied_coupon}):</span><span>- Rs {cartPreview.discount_amount}</span></div>
                   ) : null}
-                  <div className="flex justify-between border-t border-slate-800 pt-2 font-bold text-slate-200"><span>Total Amount:</span><span className="text-emerald-400">Rs {cartPreview?.total ?? selectedMeal.price}</span></div>
+                  <div className="flex justify-between border-t border-border pt-2 font-bold text-text"><span>Total Amount:</span><span className="text-nutri">Rs {cartPreview?.total ?? selectedMeal.price}</span></div>
                 </div>
 
-                <div className="flex flex-col gap-2 border-t border-slate-800 pt-3">
-                  <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">🎟️ Available Coupons</span>
+                <div className="flex flex-col gap-2 border-t border-border pt-3">
+                  <span className="text-xs text-subtle font-bold uppercase tracking-wider">🎟️ Available Coupons</span>
                   {couponsLoading ? (
-                    <span className="text-xs text-slate-500 font-mono animate-pulse">Loading coupons...</span>
+                    <span className="text-xs text-subtle font-mono animate-pulse">Loading coupons…</span>
                   ) : applicableCoupons.length === 0 ? (
-                    <span className="text-xs text-slate-500">No applicable coupons found.</span>
+                    <span className="text-xs text-subtle">No applicable coupons found.</span>
                   ) : (
                     <div className="flex flex-col gap-2">
                       {applicableCoupons.map((c) => (
-                        <div key={c.code} className={`flex justify-between items-center p-2.5 rounded-xl border transition text-xs ${appliedCoupon === c.code ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-300" : "bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-300"}`}>
+                        <div key={c.code} className={`flex justify-between items-center p-2.5 rounded-xl border transition text-xs ${appliedCoupon === c.code ? "bg-nutri/10 border-nutri/40 text-nutri" : "bg-surface-2 border-border hover:border-border-strong text-text"}`}>
                           <div>
                             <p className="font-bold">{c.code}</p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">{c.description}</p>
+                            <p className="text-[10px] text-muted mt-0.5">{c.description}</p>
                           </div>
-                          <button disabled={appliedCoupon === c.code || cartLoading} onClick={() => handleApplyCoupon(c.code)} className="bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-bold px-2.5 py-1 rounded-lg text-[10px] transition">{appliedCoupon === c.code ? "Applied" : "Apply"}</button>
+                          <button disabled={appliedCoupon === c.code || cartLoading} onClick={() => handleApplyCoupon(c.code)} className="bg-nutri disabled:opacity-50 text-nutri-contrast font-bold px-2.5 py-1 rounded-lg text-[10px] transition">{appliedCoupon === c.code ? "Applied" : "Apply"}</button>
                         </div>
                       ))}
                     </div>
@@ -748,32 +735,32 @@ export default function NutriOrderView() {
                 </div>
 
                 {(cartPreview?.total ?? selectedMeal.price) >= 1000 ? (
-                  <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-3 flex items-start gap-2.5 text-xs text-slate-400">
-                    <span className="text-rose-400 text-sm">❌</span>
-                    <div><p className="font-bold text-slate-300">Safety Cap Check Failed</p><p className="text-slate-500 mt-0.5">Total of Rs {cartPreview?.total ?? selectedMeal.price} meets or exceeds the Swiggy limit of Rs 1000. Checkout is blocked.</p></div>
+                  <div className="bg-danger/10 border border-danger/20 rounded-xl p-3 flex items-start gap-2.5 text-xs">
+                    <span className="text-danger text-sm">❌</span>
+                    <div><p className="font-bold text-text">Order Cap Exceeded</p><p className="text-muted mt-0.5">Total of Rs {cartPreview?.total ?? selectedMeal.price} meets or exceeds the Rs 1000 safety limit. Checkout is blocked.</p></div>
                   </div>
                 ) : (cartPreview?.total ?? selectedMeal.price) >= 850 ? (
-                  <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 flex items-start gap-2.5 text-xs text-slate-400">
-                    <span className="text-amber-400 text-sm">⚠️</span>
-                    <div><p className="font-bold text-slate-300">Approaching Cart Cap</p><p className="text-slate-500 mt-0.5">Total of Rs {cartPreview?.total ?? selectedMeal.price} is approaching the Rs 1000 limit. Double order prevention lock checks are clear.</p></div>
+                  <div className="bg-warning/10 border border-warning/20 rounded-xl p-3 flex items-start gap-2.5 text-xs">
+                    <span className="text-warning text-sm">⚠️</span>
+                    <div><p className="font-bold text-text">Approaching Order Cap</p><p className="text-muted mt-0.5">Total of Rs {cartPreview?.total ?? selectedMeal.price} is close to the Rs 1000 safety limit.</p></div>
                   </div>
                 ) : (
-                  <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 flex items-start gap-2.5 text-xs text-slate-400">
-                    <span className="text-emerald-400 text-sm">🛡️</span>
-                    <div><p className="font-bold text-slate-300">Safety Cap Check Passed</p><p className="text-slate-500 mt-0.5">Total is below the Rs 1000 limit. Double order prevention lock checks are clear.</p></div>
+                  <div className="bg-success/10 border border-success/20 rounded-xl p-3 flex items-start gap-2.5 text-xs">
+                    <span className="text-success text-sm">🛡️</span>
+                    <div><p className="font-bold text-text">Safety Checks Passed</p><p className="text-muted mt-0.5">Total is under the Rs 1000 cap and duplicate-order protection is active.</p></div>
                   </div>
                 )}
 
-                <label className="flex items-center gap-3 cursor-pointer select-none border border-slate-800 rounded-xl p-3 bg-slate-950/20 hover:bg-slate-950/50 transition">
-                  <input type="checkbox" checked={checkoutConfirmed} onChange={(e) => handleConfirmCheckbox(e.target.checked)} className="accent-emerald-500 h-4 w-4 rounded cursor-pointer" />
-                  <div className="text-xs"><p className="font-semibold text-slate-300">I confirm these details are correct</p><p className="text-slate-500 text-[10px] mt-0.5">Explicit authorization triggers the non-idempotent Swiggy place route.</p></div>
+                <label className="flex items-center gap-3 cursor-pointer select-none border border-border rounded-xl p-3 bg-surface-2 hover:bg-surface-3 transition">
+                  <input type="checkbox" checked={checkoutConfirmed} onChange={(e) => handleConfirmCheckbox(e.target.checked)} className="accent-nutri h-4 w-4 rounded cursor-pointer" />
+                  <div className="text-xs"><p className="font-semibold text-text">I confirm these details are correct</p><p className="text-subtle text-[10px] mt-0.5">Orders are only placed after your explicit confirmation.</p></div>
                 </label>
 
-                <button onClick={handlePlaceOrder} disabled={orderPlacing || !checkoutConfirmed || (cartPreview?.total ?? selectedMeal.price) >= 1000} className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-800 text-slate-950 font-bold py-3.5 rounded-xl transition text-base flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/20 uppercase tracking-wider text-xs">
+                <button onClick={handlePlaceOrder} disabled={orderPlacing || !checkoutConfirmed || (cartPreview?.total ?? selectedMeal.price) >= 1000} className="w-full bg-nutri hover:brightness-105 disabled:opacity-50 disabled:cursor-not-allowed text-nutri-contrast font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2 shadow-md uppercase tracking-wider text-xs">
                   {orderPlacing ? (
                     <>
-                      <svg className="animate-spin h-5 w-5 text-slate-950" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
-                      Placing Order...
+                      <Spinner className="h-5 w-5 text-nutri-contrast" />
+                      Placing Order…
                     </>
                   ) : (
                     "Place COD Order on Swiggy"

@@ -78,12 +78,12 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
 
   if (loading) {
     return (
-      <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-2xl p-6 shadow-xl">
-        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+      <div className="bg-surface backdrop-blur-md border border-border rounded-2xl p-6 shadow-xl">
+        <h3 className="text-lg font-bold text-text flex items-center gap-2">
           🍳 What Can I Cook Today?
         </h3>
         <div className="flex items-center justify-center py-8">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-emerald-500" />
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-strong border-t-nutri" />
         </div>
       </div>
     );
@@ -92,43 +92,43 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
   if (!data) return null;
 
   const coverageBarColor = (pct: number) => {
-    if (pct >= 100) return "bg-emerald-500";
-    if (pct >= 60) return "bg-emerald-500/70";
-    if (pct >= 30) return "bg-amber-500/70";
-    return "bg-rose-500/50";
+    if (pct >= 100) return "bg-nutri";
+    if (pct >= 60) return "bg-nutri/70";
+    if (pct >= 30) return "bg-warning/70";
+    return "bg-danger/50";
   };
 
   const dietBadge = (diet: string) =>
     diet === "veg" ? (
-      <span className="px-1.5 py-0.5 text-[9px] font-black uppercase rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+      <span className="px-1.5 py-0.5 text-[9px] font-black uppercase rounded bg-nutri/20 text-nutri border border-nutri/30">
         VEG
       </span>
     ) : (
-      <span className="px-1.5 py-0.5 text-[9px] font-black uppercase rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">
+      <span className="px-1.5 py-0.5 text-[9px] font-black uppercase rounded bg-danger/20 text-danger border border-danger/30">
         NON-VEG
       </span>
     );
 
   return (
-    <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col gap-4 text-left">
-      <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+    <div className="bg-surface backdrop-blur-md border border-border rounded-2xl p-6 shadow-xl flex flex-col gap-4 text-left">
+      <div className="flex justify-between items-center border-b border-border pb-3">
+        <h3 className="text-lg font-bold text-text flex items-center gap-2">
           🍳 What Can I Cook Today?
         </h3>
         <div className="flex items-center gap-2">
           {data.cookable_now > 0 && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-nutri/20 text-nutri border border-nutri/30">
               {data.cookable_now} ready now
             </span>
           )}
-          <span className="text-[10px] font-semibold text-slate-500">
+          <span className="text-[10px] font-semibold text-subtle">
             {data.total_recipes} recipes
           </span>
         </div>
       </div>
 
       {cookMessage && (
-        <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-semibold">
+        <div className="p-3 rounded-xl border border-nutri/30 bg-nutri/10 text-nutri text-xs font-semibold">
           🎉 {cookMessage}
         </div>
       )}
@@ -142,40 +142,40 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
               key={recipe.name}
               className={`p-3 rounded-xl border transition-all flex flex-col gap-2.5 ${
                 dimmed
-                  ? "border-slate-800/50 bg-slate-950/30 opacity-60"
+                  ? "border-border bg-surface-2 opacity-60"
                   : recipe.can_cook_now
-                  ? "border-emerald-500/30 bg-emerald-500/5"
-                  : "border-slate-800 bg-slate-950/50"
+                  ? "border-nutri/30 bg-nutri/5"
+                  : "border-border bg-surface-2"
               }`}
             >
               {/* Recipe Header */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-sm text-white">{recipe.name}</span>
+                  <span className="font-bold text-sm text-text">{recipe.name}</span>
                   {dietBadge(recipe.diet)}
                   {recipe.can_cook_now && (
-                    <span className="text-[9px] font-black text-emerald-400 uppercase">✓ Ready</span>
+                    <span className="text-[9px] font-black text-nutri uppercase">✓ Ready</span>
                   )}
                   {recipe.uses_expiring_items && (
-                    <span className="text-[9px] font-black bg-amber-500/15 text-amber-400 border border-amber-500/25 rounded px-1.5 uppercase tracking-wide">
+                    <span className="text-[9px] font-black bg-warning/15 text-warning border border-warning/25 rounded px-1.5 uppercase tracking-wide">
                       ⏰ Expiring Ingredients
                     </span>
                   )}
                 </div>
-                <span className="text-[10px] font-mono text-slate-500">
+                <span className="text-[10px] font-mono text-subtle">
                   {recipe.tag}
                 </span>
               </div>
 
               {/* Coverage Bar */}
               <div className="flex items-center gap-2">
-                <div className="flex-1 h-2 rounded-full bg-slate-800 overflow-hidden">
+                <div className="flex-1 h-2 rounded-full bg-surface-3 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${coverageBarColor(recipe.coverage_pct)}`}
                     style={{ width: `${Math.min(recipe.coverage_pct, 100)}%` }}
                   />
                 </div>
-                <span className="text-xs font-bold text-slate-300 w-12 text-right">
+                <span className="text-xs font-bold text-muted w-12 text-right">
                   {recipe.coverage_pct}%
                 </span>
               </div>
@@ -186,7 +186,7 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
                   {recipe.missing_items.map((mi) => (
                     <span
                       key={mi.name}
-                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-warning/10 text-warning border border-warning/20"
                     >
                       Missing: {mi.name}
                     </span>
@@ -195,12 +195,12 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
               )}
 
               {/* Action Buttons */}
-              <div className="flex gap-2 pt-1 border-t border-slate-900/60 mt-1">
+              <div className="flex gap-2 pt-1 border-t border-border/60 mt-1">
                 {recipe.coverage_pct > 0 && (
                   <button
                     onClick={() => handleCookRecipe(recipe.name)}
                     disabled={cookingRecipe !== null}
-                    className="text-[10px] font-bold px-3 py-1.5 rounded bg-emerald-500 text-slate-950 hover:bg-emerald-600 transition disabled:opacity-50"
+                    className="text-[10px] font-bold px-3 py-1.5 rounded bg-nutri text-nutri-contrast hover:brightness-105 transition disabled:opacity-50"
                   >
                     {cookingRecipe === recipe.name ? "Updating pantry..." : "🍳 I Cooked This"}
                   </button>
@@ -209,7 +209,7 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
                   <button
                     onClick={() => handlePlanRecipe(recipe)}
                     disabled={planningRecipe === recipe.name}
-                    className="text-[10px] font-bold px-3 py-1.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30 transition disabled:opacity-50"
+                    className="text-[10px] font-bold px-3 py-1.5 rounded bg-info/20 text-info border border-info/30 hover:bg-info/30 transition disabled:opacity-50"
                   >
                     {planningRecipe === recipe.name
                       ? "Adding..."
@@ -227,7 +227,7 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
         <div className="mt-1">
           <button
             onClick={() => setShowSkipped(!showSkipped)}
-            className="text-[10px] font-semibold text-slate-500 hover:text-slate-400 transition"
+            className="text-[10px] font-semibold text-subtle hover:text-muted transition"
           >
             {showSkipped ? "▲ Hide" : "▼ Show"} {data.skipped_recipes.length} skipped recipes
           </button>
@@ -236,10 +236,10 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
               {data.skipped_recipes.map((sr: SkippedRecipe) => (
                 <div
                   key={sr.recipe}
-                  className="text-[10px] text-slate-500 flex items-center gap-2"
+                  className="text-[10px] text-subtle flex items-center gap-2"
                 >
                   <span className="line-through">{sr.recipe}</span>
-                  <span className="text-amber-500/70 font-semibold">— {sr.reason}</span>
+                  <span className="text-warning/70 font-semibold">— {sr.reason}</span>
                 </div>
               ))}
             </div>

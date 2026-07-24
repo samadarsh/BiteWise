@@ -9,48 +9,21 @@ interface AlertBannerProps {
 export default function AlertBanner({ message, type = "info", onClose }: AlertBannerProps) {
   if (!message) return null;
 
-  const styles = {
-    success: {
-      bg: "bg-emerald-500/5",
-      border: "border-emerald-500/20",
-      text: "text-emerald-400",
-      label: "Success"
-    },
-    error: {
-      bg: "bg-rose-500/5",
-      border: "border-rose-500/20",
-      text: "text-rose-400",
-      label: "Error"
-    },
-    warning: {
-      bg: "bg-amber-500/5",
-      border: "border-amber-500/20",
-      text: "text-amber-400",
-      label: "Warning"
-    },
-    info: {
-      bg: "bg-indigo-500/5",
-      border: "border-indigo-500/20",
-      text: "text-indigo-400",
-      label: "Info"
-    }
-  };
-
-  const config = styles[type];
+  const config = {
+    success: { cls: "bg-success/10 border-success/25 text-success", label: "Success" },
+    error: { cls: "bg-danger/10 border-danger/25 text-danger", label: "Error" },
+    warning: { cls: "bg-warning/10 border-warning/25 text-warning", label: "Warning" },
+    info: { cls: "bg-info/10 border-info/25 text-info", label: "Info" },
+  }[type];
 
   return (
-    <div className={`p-4 rounded-xl border flex justify-between items-start gap-3 transition ${config.bg} ${config.border} ${config.text}`}>
+    <div className={`p-4 rounded-xl border flex justify-between items-start gap-3 ${config.cls}`}>
       <div className="flex items-start gap-2.5 text-xs">
-        <span className="text-[10px] font-bold uppercase tracking-wider">{config.label}</span>
-        <div className="leading-relaxed">
-          <p className="font-semibold">{message}</p>
-        </div>
+        <span className="text-[10px] font-bold uppercase tracking-wider mt-0.5">{config.label}</span>
+        <p className="font-semibold leading-relaxed">{message}</p>
       </div>
       {onClose && (
-        <button
-          onClick={onClose}
-          className="text-slate-500 hover:text-slate-300 text-sm font-bold leading-none cursor-pointer focus:outline-none"
-        >
+        <button onClick={onClose} className="text-current opacity-60 hover:opacity-100 text-sm font-bold leading-none cursor-pointer" aria-label="Dismiss">
           ×
         </button>
       )}

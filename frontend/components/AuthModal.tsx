@@ -47,16 +47,16 @@ export function AuthModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-fade-in">
-      <div className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-6 text-zinc-100 overflow-hidden">
-        {/* Glow effect */}
-        <div className="absolute -top-24 -right-24 w-48 h-48 bg-orange-500/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in">
+      <div className="relative w-full max-w-md bg-surface border border-border rounded-2xl shadow-2xl p-6 text-text overflow-hidden">
+        {/* Accent glows */}
+        <div className="absolute -top-24 -right-24 w-48 h-48 bg-brand/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-nutri/15 rounded-full blur-3xl pointer-events-none" />
 
         {/* Close button */}
         <button
           onClick={closeAuthModal}
-          className="absolute top-4 right-4 text-zinc-400 hover:text-white text-xl font-bold p-1 transition"
+          className="absolute top-4 right-4 text-subtle hover:text-text text-xl font-bold p-1 transition"
           aria-label="Close modal"
         >
           ✕
@@ -64,18 +64,18 @@ export function AuthModal() {
 
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-500 to-amber-400 flex items-center justify-center text-xl font-black text-black shadow-lg shadow-orange-500/30">
+          <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center text-xl font-black text-brand-contrast shadow-md">
             B
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white tracking-tight">Sign in to BiteWise</h2>
-            <p className="text-xs text-zinc-400">Your AI-Powered Nutrition & Order Intelligence Platform</p>
+            <h2 className="text-xl font-bold text-text tracking-tight">Sign in to BiteWise</h2>
+            <p className="text-xs text-muted">Your AI-Powered Nutrition &amp; Order Intelligence Platform</p>
           </div>
         </div>
 
         {/* Error message */}
         {errorMsg && (
-          <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+          <div className="mb-4 p-3 rounded-lg bg-danger/10 border border-danger/30 text-danger text-xs">
             {errorMsg}
           </div>
         )}
@@ -85,7 +85,7 @@ export function AuthModal() {
           <button
             onClick={handleGoogleSignIn}
             disabled={isLoading}
-            className="w-full flex items-center justify-center gap-3 bg-white text-zinc-900 font-semibold py-3 px-4 rounded-xl hover:bg-zinc-100 transition shadow-md disabled:opacity-50"
+            className="w-full flex items-center justify-center gap-3 bg-white text-[#17211c] border border-border font-semibold py-3 px-4 rounded-xl hover:brightness-95 transition shadow-md disabled:opacity-50"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path
@@ -111,24 +111,24 @@ export function AuthModal() {
           <button
             onClick={handleGuestSignIn}
             disabled={isLoading}
-            className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium py-3 px-4 rounded-xl border border-zinc-700/60 transition disabled:opacity-50 text-sm"
+            className="w-full flex items-center justify-center gap-2 bg-surface-2 hover:bg-surface-3 text-text font-medium py-3 px-4 rounded-xl border border-border transition disabled:opacity-50 text-sm"
           >
             <span>👤 Continue as Guest</span>
           </button>
         </div>
 
         {/* Platform Features Summary */}
-        <div className="border-t border-zinc-800 pt-4 space-y-2 text-xs text-zinc-400">
+        <div className="border-t border-border pt-4 space-y-2 text-xs text-muted">
           <div className="flex items-center gap-2">
-            <span className="text-emerald-400">✓</span>
-            <span>Personal AI macro targets & dietary preference memory</span>
+            <span className="text-nutri">✓</span>
+            <span>Personal AI macro targets &amp; dietary preference memory</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-emerald-400">✓</span>
-            <span>SmartPantry AI & household ingredient tracking</span>
+            <span className="text-nutri">✓</span>
+            <span>SmartPantry AI &amp; household ingredient tracking</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-orange-400">✓</span>
+            <span className="text-brand">✓</span>
             <span>Link Swiggy Account for 1-click healthy food ordering</span>
           </div>
         </div>

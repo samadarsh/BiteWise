@@ -91,9 +91,9 @@ export default function HouseholdDashboard() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-white gap-3">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-700 border-t-emerald-500"></div>
-        <p className="text-sm font-semibold text-slate-400">Loading SmartPantry AI...</p>
+      <div className="flex flex-col items-center justify-center py-16 text-text gap-3">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-border-strong border-t-nutri"></div>
+        <p className="text-sm font-semibold text-muted">Loading SmartPantry AI...</p>
       </div>
     );
   }
@@ -101,7 +101,7 @@ export default function HouseholdDashboard() {
   if (error) {
     return (
       <div className="max-w-xl mx-auto py-12 text-center">
-        <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-sm">
+        <div className="p-4 rounded-xl border border-danger/30 bg-danger/10 text-danger text-sm">
           ⚠️ {error}
         </div>
       </div>
@@ -109,26 +109,7 @@ export default function HouseholdDashboard() {
   }
 
   return (
-    <div className="space-y-4 sm:space-y-6 text-white max-w-7xl mx-auto px-0 sm:px-4">
-      {/* Header */}
-      <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-center text-left">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
-            🏡 SmartPantry AI
-          </h2>
-          <p className="text-xs text-slate-400 font-semibold mt-1">
-            Manage shared family diet targets, track pantry stock, discover what to cook, and preview grocery carts.
-          </p>
-        </div>
-        {household && (
-          <div className="text-right">
-            <span className="inline-block text-xs font-mono font-bold px-3 py-1 bg-slate-800 rounded border border-slate-700 text-emerald-400">
-              Household ID: {household.id}
-            </span>
-          </div>
-        )}
-      </div>
-
+    <div className="space-y-4 sm:space-y-6 text-text max-w-7xl mx-auto px-0 sm:px-4">
       {/* Low Stock Alerts Banner (full width) */}
       <LowStockAlerts onRefreshData={loadData} />
 

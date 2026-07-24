@@ -13,26 +13,24 @@ export function UserMenuHeader({ onEditProfile }: UserMenuHeaderProps) {
 
   return (
     <div className="flex items-center gap-2 sm:gap-3">
-      {/* Edit Profile Quick Button */}
       {isAuthenticated && onEditProfile && (
         <button
           onClick={onEditProfile}
-          className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition flex items-center gap-1.5"
+          className="hidden sm:flex text-xs text-nutri hover:brightness-110 font-semibold px-2.5 py-1.5 rounded-lg bg-nutri/10 hover:bg-nutri/20 border border-nutri/30 transition items-center gap-1.5"
           title="Edit personal biometrics (height, weight, age, goals)"
         >
           <span>✏️</span>
-          <span className="hidden sm:inline">Edit Profile</span>
+          <span>Edit Profile</span>
         </button>
       )}
 
-      {/* Swiggy Account Linkage Status Button */}
       {isAuthenticated && (
         <button
           onClick={connectSwiggy}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+          className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
             isSwiggyConnected
-              ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20"
-              : "bg-orange-500/10 border-orange-500/40 text-orange-400 hover:bg-orange-500/20 animate-pulse"
+              ? "bg-nutri/10 border-nutri/40 text-nutri hover:bg-nutri/20"
+              : "bg-brand/10 border-brand/40 text-brand hover:bg-brand/20"
           }`}
           title={isSwiggyConnected ? "Swiggy Account Linked" : "Click to connect your Swiggy Account"}
         >
@@ -41,11 +39,10 @@ export function UserMenuHeader({ onEditProfile }: UserMenuHeaderProps) {
         </button>
       )}
 
-      {/* User Identity / Login trigger */}
       {!isAuthenticated ? (
         <button
           onClick={openAuthModal}
-          className="flex items-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-black font-bold text-xs py-2 px-4 rounded-xl shadow-lg shadow-orange-500/20 transition"
+          className="flex items-center gap-2 bg-brand hover:brightness-105 text-brand-contrast font-bold text-xs py-2 px-4 rounded-xl shadow-md transition"
         >
           <span>Sign In / Register</span>
         </button>
@@ -53,59 +50,45 @@ export function UserMenuHeader({ onEditProfile }: UserMenuHeaderProps) {
         <div className="relative">
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="flex items-center gap-2 bg-zinc-800/80 hover:bg-zinc-800 border border-zinc-700/60 rounded-xl px-3 py-1.5 text-xs text-zinc-200 transition"
+            className="flex items-center gap-2 bg-surface-2 hover:bg-surface-3 border border-border rounded-xl px-3 py-1.5 text-xs text-text transition"
           >
-            <div className="w-6 h-6 rounded-full bg-orange-500 text-black font-bold flex items-center justify-center text-xs">
+            <div className="w-6 h-6 rounded-full bg-brand text-brand-contrast font-bold flex items-center justify-center text-xs">
               {user?.name ? user.name[0].toUpperCase() : "U"}
             </div>
-            <span className="font-medium max-w-[120px] truncate">
-              {user?.name || user?.email || "Guest User"}
-            </span>
-            <span className="text-zinc-500 text-[10px]">▼</span>
+            <span className="font-medium max-w-[120px] truncate">{user?.name || user?.email || "Guest User"}</span>
+            <span className="text-subtle text-[10px]">▼</span>
           </button>
 
-          {/* Dropdown Menu */}
           {dropdownOpen && (
-            <div className="absolute right-0 mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl py-2 z-50 text-xs text-zinc-300">
-              <div className="px-4 py-2 border-b border-zinc-800">
-                <p className="font-semibold text-white truncate">{user?.name || "BiteWise App User"}</p>
-                <p className="text-[11px] text-zinc-500 truncate">{user?.email || `ID: ${user?.id}`}</p>
-                <span className="inline-block mt-1 px-2 py-0.5 rounded bg-zinc-800 text-[10px] text-zinc-400 uppercase tracking-wider font-semibold">
+            <div className="absolute right-0 mt-2 w-56 bg-surface border border-border rounded-xl shadow-xl py-2 z-50 text-xs text-muted">
+              <div className="px-4 py-2 border-b border-border">
+                <p className="font-semibold text-text truncate">{user?.name || "BiteWise App User"}</p>
+                <p className="text-[11px] text-subtle truncate">{user?.email || `ID: ${user?.id}`}</p>
+                <span className="inline-block mt-1 px-2 py-0.5 rounded bg-surface-2 text-[10px] text-muted uppercase tracking-wider font-semibold">
                   Provider: {user?.auth_provider}
                 </span>
               </div>
 
               {onEditProfile && (
                 <button
-                  onClick={() => {
-                    setDropdownOpen(false);
-                    onEditProfile();
-                  }}
-                  className="w-full text-left px-4 py-2 hover:bg-zinc-800 text-emerald-400 flex items-center gap-2 transition border-b border-zinc-800/50"
+                  onClick={() => { setDropdownOpen(false); onEditProfile(); }}
+                  className="w-full text-left px-4 py-2 hover:bg-surface-2 text-nutri flex items-center gap-2 transition border-b border-border"
                 >
-                  <span>⚙️ Edit Profile & Biometrics</span>
+                  <span>⚙️ Edit Profile &amp; Biometrics</span>
                 </button>
               )}
 
               <button
-                onClick={() => {
-                  setDropdownOpen(false);
-                  connectSwiggy();
-                }}
-                className="w-full text-left px-4 py-2 hover:bg-zinc-800 flex items-center justify-between transition"
+                onClick={() => { setDropdownOpen(false); connectSwiggy(); }}
+                className="w-full text-left px-4 py-2 hover:bg-surface-2 flex items-center justify-between transition text-text"
               >
                 <span>Swiggy Account</span>
-                <span className={isSwiggyConnected ? "text-emerald-400" : "text-orange-400"}>
-                  {isSwiggyConnected ? "Linked ✓" : "Not Linked"}
-                </span>
+                <span className={isSwiggyConnected ? "text-nutri" : "text-brand"}>{isSwiggyConnected ? "Linked ✓" : "Not Linked"}</span>
               </button>
 
               <button
-                onClick={() => {
-                  setDropdownOpen(false);
-                  logout();
-                }}
-                className="w-full text-left px-4 py-2 hover:bg-red-500/10 text-red-400 transition border-t border-zinc-800"
+                onClick={() => { setDropdownOpen(false); logout(); }}
+                className="w-full text-left px-4 py-2 hover:bg-danger/10 text-danger transition border-t border-border"
               >
                 Sign Out
               </button>
