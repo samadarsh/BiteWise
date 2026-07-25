@@ -22,6 +22,7 @@ export default function CookQueryStep({ onAddGrocery, onNext, onBack }: CookQuer
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<KitchenResolveResponse | null>(null);
   const [adding, setAdding] = useState(false);
+  const [addedMessage, setAddedMessage] = useState<string | null>(null);
 
   const submit = async () => {
     const trimmed = query.trim();
@@ -40,10 +41,14 @@ export default function CookQueryStep({ onAddGrocery, onNext, onBack }: CookQuer
 
   const addMissing = async (recipe: RecipeSuggestion) => {
     setAdding(true);
+    setAddedMessage(null);
     try {
       for (const item of recipe.missing_items) {
         await onAddGrocery({ item_name: item.name, quantity: 1, unit: "unit" });
       }
+      const n = recipe.missing_items.length;
+      setAddedMessage(`✅ Added ${n} item${n === 1 ? "" : "s"} to your grocery list for ${recipe.name}.`);
+      setTimeout(() => setAddedMessage(null), 5000);
     } catch (err) {
       alert("Failed to add items: " + (err instanceof Error ? err.message : String(err)));
     } finally {
@@ -54,10 +59,14 @@ export default function CookQueryStep({ onAddGrocery, onNext, onBack }: CookQuer
   const addAllParsed = async () => {
     if (!result?.grocery_item_names) return;
     setAdding(true);
+    setAddedMessage(null);
     try {
+      const n = result.grocery_item_names.length;
       for (const name of result.grocery_item_names) {
         await onAddGrocery({ item_name: name, quantity: 1, unit: "unit" });
       }
+      setAddedMessage(`✅ Added ${n} item${n === 1 ? "" : "s"} to your grocery list.`);
+      setTimeout(() => setAddedMessage(null), 5000);
     } catch (err) {
       alert("Failed to add items: " + (err instanceof Error ? err.message : String(err)));
     } finally {
@@ -100,6 +109,10 @@ export default function CookQueryStep({ onAddGrocery, onNext, onBack }: CookQuer
           {loading ? "Checking your pantry…" : "Check it"}
         </button>
       </div>
+
+      {addedMessage && (
+        <div className="p-3 rounded-xl border border-success/30 bg-success/10 text-success text-xs font-semibold">{addedMessage}</div>
+      )}
 
       {result && (
         <div className="flex flex-col gap-3">
