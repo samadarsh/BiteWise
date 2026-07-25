@@ -250,9 +250,13 @@ async def seed_demo_data(
             ("Curd", "low", "Dairy", False),
             ("Tomato", "low", "Vegetables", False),
         ]
+        # Deliberately soon-expiring so a fresh demo session shows the expiry
+        # alert working right away, independent of the (now safely-above-the-
+        # alert-window) category defaults used for everything a real user adds.
+        demo_expiry_overrides = {"Eggs": 2}
+
         for name, stock, cat, bulk in pantry_seed:
-            # Perishables get default auto-expiry dates
-            days = get_category_default_expiry_days(cat)
+            days = demo_expiry_overrides.get(name, get_category_default_expiry_days(cat))
             expiry = (datetime.datetime.utcnow() + datetime.timedelta(days=days)).date() if days is not None else None
 
             db.add(PantryItem(

@@ -57,10 +57,14 @@ KITCHEN_TEMPLATE: List[Dict[str, Any]] = [
 ]
 
 # Category-based expiry defaults (in days from added_at)
-# Only perishable categories have defaults; staples/spices are non-perishable
+# Only perishable categories have defaults; staples/spices are non-perishable.
+# Every value here must stay above the "expiring soon" alert window (3 days,
+# see get_expiring_items) — otherwise an item shows up as already-expiring the
+# instant it's added, before any real time has passed. Proteins was 2 (below
+# the window) and made every freshly-stocked egg/chicken/fish alarm on day one.
 EXPIRY_DEFAULTS_DAYS: Dict[str, int] = {
     "Dairy": 4,
-    "Proteins": 2,
+    "Proteins": 4,
     "Bakery": 4,
     "Vegetables": 5,
     # Staples, Spices, Other → no expiry (return None)
