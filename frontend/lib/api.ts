@@ -764,6 +764,17 @@ export const api = {
   async getGroupedGroceryList(): Promise<GroupedGroceryResponse> {
     return apiFetch<GroupedGroceryResponse>("/grocery-list/grouped");
   },
+
+  /**
+   * Resolves a free-text Kitchen composer query into a recipe, a dietary
+   * conflict explanation, browse suggestions, or a direct shopping intent.
+   */
+  async resolveKitchenQuery(query: string): Promise<KitchenResolveResponse> {
+    return apiFetch<KitchenResolveResponse>("/household/kitchen/resolve", {
+      method: "POST",
+      body: JSON.stringify({ query }),
+    });
+  },
 };
 
 // ── Sprint 11: Intelligence Response Types ──────────────
@@ -813,6 +824,15 @@ export interface CookTodayResponse {
   total_recipes: number;
   cookable_now: number;
   skipped_recipes: SkippedRecipe[];
+}
+
+export type KitchenIntent = "recipe" | "recipe_conflict" | "browse" | "grocery_item";
+
+export interface KitchenResolveResponse {
+  intent: KitchenIntent;
+  recipe: RecipeSuggestion | { name: string; reason: string } | null;
+  grocery_item_names: string[] | null;
+  browse_suggestions: RecipeSuggestion[] | null;
 }
 
 export interface MemberInsight {

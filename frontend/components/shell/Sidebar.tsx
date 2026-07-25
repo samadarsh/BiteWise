@@ -92,6 +92,57 @@ const SUB_NAV: Record<string, SubNavItem[]> = {
       ),
     },
   ],
+  "/app/smartpantry": [
+    {
+      href: "/app/smartpantry/kitchen",
+      label: "Kitchen",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 12h18M5 12V5a1 1 0 0 1 1-1h4v8M13 12V4h5a1 1 0 0 1 1 1v7M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7" />
+        </svg>
+      ),
+    },
+    {
+      href: "/app/smartpantry/pantry",
+      label: "Pantry",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="5" y="3" width="14" height="18" rx="1.5" />
+          <path d="M5 9h14M5 15h14" />
+        </svg>
+      ),
+    },
+    {
+      href: "/app/smartpantry/cook",
+      label: "Cook",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 21h18M6 21V10a6 6 0 0 1 12 0v11" />
+        </svg>
+      ),
+    },
+    {
+      href: "/app/smartpantry/grocery",
+      label: "Grocery",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 9h18l-1.5 10.5a2 2 0 0 1-2 1.5H6.5a2 2 0 0 1-2-1.5L3 9Z" />
+          <path d="M8 9V6a4 4 0 0 1 8 0v3" />
+        </svg>
+      ),
+    },
+    {
+      href: "/app/smartpantry/household",
+      label: "Household",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="8" cy="8" r="3" />
+          <circle cx="17" cy="9" r="2.5" />
+          <path d="M2.5 20a5.5 5.5 0 0 1 11 0M13 20a4.5 4.5 0 0 1 8.5-2" />
+        </svg>
+      ),
+    },
+  ],
 };
 
 /** Desktop-only sidebar with a workspace-style product switcher pinned below the header. */

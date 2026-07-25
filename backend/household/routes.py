@@ -1,4 +1,5 @@
 import secrets
+import difflib
 from typing import List, Optional, Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -196,3 +197,73 @@ async def get_household_insights(
     """
     household = get_or_create_user_household(db, user_id)
     return compute_nutrition_insights(db, household.id)
+
+
+# ── Kitchen composer: thin intent router for the SmartPantry home ──────
+
+class KitchenResolveRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=200)
+
+
+@router.post("/kitchen/resolve")
+async def resolve_kitchen_query(
+    req: KitchenResolveRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Resolves a free-text Kitchen composer query into one of three intents:
+    - "recipe": query names a dish the household can consider cooking.
+    - "browse": cooking-flavored query with no specific dish matched.
+    - "grocery_item": a plain shopping list (e.g. "chips, coke, toilet paper").
+
+    Reuses suggest_cookable_recipes for all coverage data rather than
+    recomputing pantry-match logic.
+    """
+    household = get_or_create_user_household(db, user_id)
+    query = req.query.strip()
+    query_lower = query.lower()
+
+    cook_today = suggest_cookable_recipes(db, household.id)
+    suggestions = cook_today.get("suggestions", [])
+    skipped = cook_today.get("skipped_recipes", [])
+    recipe_names = [s["name"] for s in suggestions]
+    skipped_names = [s["recipe"] for s in skipped]
+
+    def _find(names: List[str]) -> Optional[str]:
+        direct = next((name for name in names if name.lower() in query_lower), None)
+        if direct:
+            return direct
+        close = difflib.get_close_matches(query_lower, [n.lower() for n in names], n=1, cutoff=0.6)
+        if close:
+            return next(n for n in names if n.lower() == close[0])
+        return None
+
+    # 1. Try to resolve to a specific dish the household can actually consider.
+    matched_name = _find(recipe_names)
+    if matched_name:
+        recipe = next(s for s in suggestions if s["name"] == matched_name)
+        return {"intent": "recipe", "recipe": recipe, "grocery_item_names": None, "browse_suggestions": None}
+
+    # 1b. Named a real dish, but it's filtered out for this household — say why,
+    # rather than silently falling through to unrelated browse suggestions.
+    conflict_name = _find(skipped_names)
+    if conflict_name:
+        reason = next(s["reason"] for s in skipped if s["recipe"] == conflict_name)
+        return {
+            "intent": "recipe_conflict",
+            "recipe": {"name": conflict_name, "reason": reason},
+            "grocery_item_names": None,
+            "browse_suggestions": None,
+        }
+
+    # 2. Cooking-flavored language with no specific dish matched -> browse fallback.
+    cook_cues = ["cook", "make", "dinner", "lunch", "breakfast", "tonight", "recipe", "eat", "meal", "surprise", "quick", "veg"]
+    if not query_lower or any(cue in query_lower for cue in cook_cues):
+        top = sorted(suggestions, key=lambda s: s.get("coverage_pct", 0), reverse=True)[:5]
+        return {"intent": "browse", "recipe": None, "grocery_item_names": None, "browse_suggestions": top}
+
+    # 3. Otherwise treat it as a direct shopping intent.
+    raw_items = [p.strip() for p in query.replace(" and ", ",").split(",")]
+    item_names = [p for p in raw_items if p]
+    return {"intent": "grocery_item", "recipe": None, "grocery_item_names": item_names, "browse_suggestions": None}

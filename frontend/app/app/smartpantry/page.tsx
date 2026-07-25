@@ -1,5 +1,5 @@
-import SmartPantryView from "../../../components/smartpantry/SmartPantryView";
+import { redirect } from "next/navigation";
 
 export default function SmartPantryPage() {
-  return <SmartPantryView />;
+  redirect("/app/smartpantry/kitchen");
 }
