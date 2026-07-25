@@ -7,6 +7,8 @@ interface CookQueryStepProps {
   onBack: () => void;
 }
 
+const PROMPTS = ["butter chicken tonight", "maggi noodles", "something quick with what I have", "veg dinner for the family"];
+
 function CoverageBar({ pct }: { pct: number }) {
   return (
     <div className="h-1.5 w-full bg-surface-2 rounded-full overflow-hidden">
@@ -78,6 +80,18 @@ export default function CookQueryStep({ onAddGrocery, onNext, onBack }: CookQuer
           placeholder="e.g. butter chicken, maggi noodles, veg dinner for the family"
           className="w-full bg-surface-2 border border-border focus:border-pantry rounded-xl p-3 text-sm text-text placeholder:text-subtle focus:outline-none transition resize-none font-sans"
         />
+        <div className="flex flex-wrap gap-1.5">
+          {PROMPTS.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setQuery(p)}
+              className="text-[10px] bg-surface-2 border border-border text-subtle hover:text-muted hover:border-border-strong px-2 py-1 rounded transition"
+            >
+              💡 {p}
+            </button>
+          ))}
+        </div>
         <button
           onClick={submit}
           disabled={loading || !query.trim()}
