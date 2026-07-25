@@ -444,9 +444,9 @@ export default function LandingPage() {
           {/* Left: Description & CTAs */}
           <div className="flex flex-col justify-between">
             <Reveal>
-              <p className="text-xs font-black uppercase tracking-widest text-nutri">Product 01</p>
+              <p className="text-xs font-black uppercase tracking-widest text-nutri">Personal Nutrition &amp; Swiggy MCP</p>
               <h2 className="mt-2 text-3xl sm:text-4xl md:text-5xl font-black leading-tight">NutriOrder AI</h2>
-              <p className="mt-1 text-sm font-bold text-nutri">Health-aware meal ordering through Swiggy</p>
+              <p className="mt-1 text-sm font-bold text-nutri">Health-Aware Meal Ordering Engine</p>
               <p className="mt-4 text-sm leading-6 text-muted">
                 NutriOrder AI is your personal nutrition coach. Define your calorie target, protein goals, dietary preferences, and allergies — and get ranked Swiggy meal recommendations with complete explainability.
               </p>
@@ -508,9 +508,9 @@ export default function LandingPage() {
           {/* Right: Description & Compact Differentiators Grid */}
           <div className="order-1 lg:order-2 flex flex-col justify-between">
             <Reveal>
-              <p className="text-xs font-black uppercase tracking-widest text-pantry">Product 02</p>
+              <p className="text-xs font-black uppercase tracking-widest text-pantry">Household Inventory &amp; Recipe Intelligence</p>
               <h2 className="mt-2 text-3xl sm:text-4xl md:text-5xl font-black leading-tight">SmartPantry AI</h2>
-              <p className="mt-1 text-sm font-bold text-pantry">Household food intelligence for your kitchen</p>
+              <p className="mt-1 text-sm font-bold text-pantry">Autonomous Pantry &amp; Grocery Lifecycle</p>
               <p className="mt-4 text-sm leading-6 text-muted">
                 SmartPantry AI manages the food lifecycle between restaurant orders: ingredient stock, expiry alerts, recipe matching, and prioritized grocery lists.
               </p>
