@@ -4,8 +4,11 @@ import NutritionProgress from "./NutritionProgress";
 import DailyMealLog from "./DailyMealLog";
 import ManualNutritionEntry from "./ManualNutritionEntry";
 import NextMealSuggestion from "./NextMealSuggestion";
+import FirstOrderPrompt from "./FirstOrderPrompt";
 import WeeklyTrendChart from "./WeeklyTrendChart";
 import WeightTrendCard from "./WeightTrendCard";
+
+const PLACED_ORDER_STATUSES = new Set(["ORDER_PLACED", "TRACKING"]);
 
 interface CoachDashboardProps {
   activeSessionId: string;
@@ -22,6 +25,7 @@ const CoachDashboard = forwardRef<CoachDashboardRef, CoachDashboardProps>(
     const [history, setHistory] = useState<NutritionEntry[]>([]);
     const [trends, setTrends] = useState<TrendsResponse | null>(null);
     const [weightHistory, setWeightHistory] = useState<WeightEntry[]>([]);
+    const [hasPlacedOrder, setHasPlacedOrder] = useState<boolean | null>(null);
     const [loading, setLoading] = useState(false);
     const [manualLoading, setManualLoading] = useState(false);
     const [weightLogging, setWeightLogging] = useState(false);
@@ -30,16 +34,18 @@ const CoachDashboard = forwardRef<CoachDashboardRef, CoachDashboardProps>(
     const refreshCoachData = async () => {
       setLoading(true);
       try {
-        const [statusData, historyData, trendsData, weightData] = await Promise.all([
+        const [statusData, historyData, trendsData, weightData, sessions] = await Promise.all([
           api.getCoachStatus(),
           api.getCoachHistory(),
           api.getCoachTrends(7),
           api.getWeightHistory(30),
+          api.getOrderSessions(),
         ]);
         setStatus(statusData);
         setHistory(historyData);
         setTrends(trendsData);
         setWeightHistory(weightData);
+        setHasPlacedOrder(sessions.some((s) => PLACED_ORDER_STATUSES.has(s.status)));
       } catch (err) {
         console.error("Failed to refresh coach dashboard status", err);
       } finally {
@@ -98,7 +104,13 @@ const CoachDashboard = forwardRef<CoachDashboardRef, CoachDashboardProps>(
 
         {status && <NutritionProgress status={status} currentStreak={trends?.current_streak ?? 0} />}
 
-        <NextMealSuggestion activeSessionId={activeSessionId} onSelectMeal={onSelectMeal} />
+        {hasPlacedOrder === null ? (
+          <div className="bg-info/5 border border-info/20 rounded-2xl p-5 h-[120px] animate-pulse" />
+        ) : hasPlacedOrder ? (
+          <NextMealSuggestion activeSessionId={activeSessionId} onSelectMeal={onSelectMeal} />
+        ) : (
+          <FirstOrderPrompt />
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-surface border border-border rounded-xl p-4">

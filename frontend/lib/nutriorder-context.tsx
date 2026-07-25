@@ -277,6 +277,28 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
   };
 
   const handleMealSelect = async (meal: RecommendationMeal) => {
+    let sid = activeSessionId;
+    if (!sid) {
+      // Coach can offer a meal to select before the user has ever picked a
+      // delivery address (no session exists yet) — fall back to their first
+      // saved address so selection doesn't silently 404 on an empty session id.
+      if (addresses.length === 0) {
+        showAlert("Add a delivery address on the Order page first.", "error");
+        return;
+      }
+      try {
+        const sess = await api.startOrderSession();
+        const boundSess = await api.selectAddress(sess.session_id, addresses[0].id);
+        sid = sess.session_id;
+        setActiveSessionId(sid);
+        setSelectedAddress(addresses[0].id);
+        setSessionStatus(boundSess.status);
+      } catch (err) {
+        showAlert(`Failed to start session: ${err instanceof Error ? err.message : String(err)}`, "error");
+        return;
+      }
+    }
+
     setSelectedMeal(meal);
     setCartLoading(true);
     setCheckoutConfirmed(false);
@@ -284,13 +306,13 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
     setApplicableCoupons([]);
 
     const prepareCartForSelectedMeal = async (allowRestaurantSwitch = false) => {
-      await api.syncCart(activeSessionId, allowRestaurantSwitch);
-      const cartInfo = await api.reviewCart(activeSessionId);
+      await api.syncCart(sid, allowRestaurantSwitch);
+      const cartInfo = await api.reviewCart(sid);
       setCartPreview(cartInfo.cart);
       setSessionStatus(cartInfo.status);
       try {
         setCouponsLoading(true);
-        const couponsRes = await api.fetchCoupons(activeSessionId);
+        const couponsRes = await api.fetchCoupons(sid);
         setApplicableCoupons(couponsRes.coupons || []);
       } catch (couponErr) {
         console.error("Failed to load coupons", couponErr);
@@ -300,7 +322,7 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
     };
 
     try {
-      await api.selectItem(activeSessionId, meal.restaurant_id || "", meal.id);
+      await api.selectItem(sid, meal.restaurant_id || "", meal.id);
       await prepareCartForSelectedMeal(false);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

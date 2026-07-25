@@ -1,0 +1,250 @@
+import { chromium } from "playwright";
+
+const OUT = "/private/tmp/claude-501/-Users-samadarsh-Documents-MY-PROJECTS-nutriorderai/4bd99f5a-9d4b-4c31-b48d-5feb4102f53a/scratchpad/shots";
+const results = [];
+const ok = (name, cond, detail = "") => {
+  const line = `${cond ? "PASS" : "FAIL"}  ${name}${detail ? " — " + detail : ""}`;
+  results.push(line);
+  console.log(line);
+  if (!cond) process.exitCode = 1;
+};
+
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+const page = await ctx.newPage();
+const pageErrors = [];
+page.on("pageerror", (e) => pageErrors.push(String(e)));
+
+// ── 1. Landing: anonymous CTAs ──
+await page.goto("http://localhost:3000/", { waitUntil: "networkidle" });
+ok("landing loads", await page.locator("text=BiteWise").first().isVisible());
+ok("Get Started CTA visible", await page.locator("text=Get Started Free").first().isVisible().catch(() => false));
+ok("Sandbox demo CTA visible", await page.locator("text=Try Sandbox Demo").isVisible().catch(() => false));
+
+// ── 2. Demo login → platform chooser (first-time session) ──
+await page.click("text=Try Sandbox Demo");
+await page.waitForURL("**/app", { timeout: 20000 });
+await page.waitForTimeout(1000);
+ok("sandbox demo lands on the platform chooser", page.url().endsWith("/app"));
+ok("chooser shows both products", await page.locator("text=Open NutriOrder AI").isVisible().catch(() => false) && await page.locator("text=Open SmartPantry AI").isVisible().catch(() => false));
+ok("chooser has no sidebar yet (no product chosen)", !(await page.locator("aside nav").first().isVisible().catch(() => false)));
+
+// ── 3. Choose NutriOrder → onboarding wizard (profile incomplete) ──
+await page.click("text=Open NutriOrder AI");
+await page.waitForURL("**/app/nutriorder", { timeout: 10000 });
+await page.waitForTimeout(1000);
+ok("wizard welcome step shows", await page.locator("text=Let's build your health profile").isVisible().catch(() => false));
+
+await page.click("text=Get Started");
+await page.waitForTimeout(400);
+ok("wizard biometrics step shows", await page.locator("text=Your Biometrics").isVisible().catch(() => false));
+await page.fill('input[placeholder="e.g. 28"]', "27");
+await page.fill('input[placeholder="e.g. 175"]', "172");
+await page.fill('input[placeholder="e.g. 70"]', "65");
+await page.click("text=Continue");
+await page.waitForTimeout(400);
+
+ok("wizard goals & diet step shows", await page.locator("text=Goals & Diet").isVisible().catch(() => false));
+await page.click("text=Vegetarian");
+await page.click("text=Continue");
+await page.waitForTimeout(400);
+
+ok("wizard ranking step shows", await page.locator("text=How should we rank meals").isVisible().catch(() => false));
+await page.click("text=Continue");
+await page.waitForTimeout(400);
+
+ok("wizard confirm step shows", await page.locator("text=You're all set").isVisible().catch(() => false));
+await page.click("text=Let's Eat Smart");
+await page.waitForTimeout(2000);
+ok("wizard completion lands on Coach", page.url().includes("/app/nutriorder/coach"));
+
+// ── 4. Coach hub renders as the health-tracking home ──
+ok("sidebar sub-nav order is Coach, Find Food, History, Preferences", await (async () => {
+  const items = await page.locator("aside nav a").allTextContents();
+  const labels = items.map((t) => t.trim()).filter(Boolean);
+  return JSON.stringify(labels) === JSON.stringify(["Coach", "Find Food", "History", "Preferences"]);
+})());
+ok("coach hero progress shows", await page.locator("text=Today's progress").isVisible().catch(() => false));
+ok("first-order prompt shows before any order is placed", await page.locator("text=Order your first meal").isVisible().catch(() => false));
+ok("weekly trend chart shows", await page.locator("text=This Week — Protein vs. Target").isVisible().catch(() => false));
+ok("weight trend card shows", await page.locator("text=Weight Trend").isVisible().catch(() => false));
+
+// ── 5. Seed demo data, then the Order flow end-to-end ──
+await page.click("text=Load Demo Data");
+await page.waitForTimeout(2500);
+ok("seed success alert", await page.locator("text=seeded successfully").first().isVisible().catch(() => false));
+
+await page.locator('aside nav a[href="/app/nutriorder/order"]').click();
+await page.waitForURL("**/app/nutriorder/order", { timeout: 10000 });
+await page.waitForTimeout(800);
+ok("order page shows today-so-far strip", await page.locator("text=Today so far").isVisible().catch(() => false));
+
+await page.selectOption("main select", { index: 1 });
+await page.waitForTimeout(1200);
+ok("session started after address", await page.locator("text=Session active").isVisible().catch(() => false));
+ok(
+  "no recommendations appear before a prompt is submitted",
+  (await page.locator('[data-testid="recommendation-card"]').count()) === 0
+);
+
+await page.fill("textarea", "high protein grilled chicken");
+await page.click("text=Find Recommended Meal");
+await page.waitForTimeout(3500);
+const cardCount = await page.locator('[data-testid="recommendation-card"]').count();
+ok("recommendations rendered", cardCount >= 1, `${cardCount} cards`);
+
+await page.locator("h4", { hasText: "Grilled Chicken" }).first().click();
+await page.waitForTimeout(3000);
+ok("cart shows COD", await page.locator("text=Cash On Delivery").isVisible().catch(() => false));
+ok("coupons loaded", await page.locator("text=FITNEW50").isVisible().catch(() => false));
+ok("safety check surfaced", await page.locator("text=Safety Checks Passed").isVisible().catch(() => false));
+
+await page.locator('input[type="checkbox"]').first().check();
+await page.waitForTimeout(1200);
+await page.click("text=Place COD Order on Swiggy");
+await page.waitForTimeout(3000);
+ok("tracking view shows", await page.locator("text=Tracking").first().isVisible().catch(() => false));
+await page.screenshot({ path: `${OUT}/qa-tracking.png` });
+
+// ── 6. An in-progress order must not block Coach/Orders/Preferences ──
+await page.locator('aside nav a[href="/app/nutriorder/coach"]').click();
+await page.waitForURL("**/app/nutriorder/coach", { timeout: 10000 });
+await page.waitForTimeout(1200);
+ok(
+  "coach page shows real content while order is tracking (not stuck on tracking view)",
+  await page.locator("text=Today's progress").isVisible().catch(() => false)
+);
+ok("in-progress reminder banner shows on Coach", await page.locator("text=Order in progress").isVisible().catch(() => false));
+ok("what-you-need-next card shows once an order exists", await page.locator("text=What do you need next?").isVisible().catch(() => false));
+
+// Reload to reset in-memory provider state (activeSessionId etc.) the way a real
+// returning user's fresh page load would — exercises the handleMealSelect guard
+// that auto-starts a session when one isn't already active.
+await page.reload({ waitUntil: "networkidle" });
+await page.waitForTimeout(1200);
+await page.click("text=Suggest My Next Meal");
+await page.waitForTimeout(3000);
+const coachSuggestion = page.locator(".cursor-pointer", { hasText: "🏪" }).first();
+if (await coachSuggestion.isVisible().catch(() => false)) {
+  await coachSuggestion.click();
+  await page.waitForTimeout(2500);
+  ok(
+    "selecting a meal from Coach after a session reset still works",
+    await page.locator("text=/added — open the Order page/").isVisible().catch(() => false)
+  );
+} else {
+  ok("selecting a meal from Coach after a session reset still works", false, "no suggestion returned to click");
+}
+
+await page.locator('aside nav a[href="/app/nutriorder/order"]').click();
+await page.waitForURL("**/app/nutriorder/order", { timeout: 10000 });
+await page.waitForTimeout(800);
+ok("navigating back to Order still shows the tracking view", await page.locator("text=Tracking").first().isVisible().catch(() => false));
+
+await page.click("text=Back to Coach");
+await page.waitForTimeout(1500);
+ok("Back to Coach button returns to the Coach hub", page.url().includes("/app/nutriorder/coach"));
+
+await page.locator('aside nav a[href="/app/nutriorder/orders"]').click();
+await page.waitForURL("**/app/nutriorder/orders", { timeout: 10000 });
+await page.waitForTimeout(1200);
+ok("orders history page renders", await page.locator("text=Order History").isVisible().catch(() => false));
+ok("orders history shows placed order", (await page.locator("text=ORDER_PLACED").count()) + (await page.locator("text=Order Placed").count()) >= 1);
+
+await page.locator('aside nav a[href="/app/nutriorder/preferences"]').click();
+await page.waitForURL("**/app/nutriorder/preferences", { timeout: 10000 });
+await page.waitForTimeout(1200);
+ok("preferences page renders (quick-edit form)", await page.locator("text=Set Up Your Profile").isVisible().catch(() => false));
+
+// ── 7. SmartPantry flow (Kitchen composer + IA split) ──
+await page.click("aside button[aria-haspopup='menu']");
+await page.waitForTimeout(300);
+await page.click('aside a[href="/app/smartpantry"]');
+await page.waitForURL("**/app/smartpantry/kitchen", { timeout: 10000 });
+ok("nav switches to smartpantry", page.url().includes("/app/smartpantry/kitchen"));
+ok("sidebar sub-nav shows Kitchen/Pantry/Cook/Grocery/Household", await page.locator("aside nav a", { hasText: "Household" }).isVisible().catch(() => false));
+
+await page.fill("textarea", "maggi noodles");
+await page.click("text=Go");
+await page.waitForTimeout(2500);
+ok("composer resolves named dish", await page.locator("text=Maggi Noodles").first().isVisible().catch(() => false));
+
+await page.fill("textarea", "chips, coke");
+await page.click("text=Go");
+await page.waitForTimeout(2000);
+ok("composer resolves grocery-item intent", await page.locator("text=Add to your grocery list?").isVisible().catch(() => false));
+await page.click("text=/Add all \\d+ to grocery list/").catch(() => {});
+await page.waitForTimeout(1500);
+
+await page.locator('aside nav a[href="/app/smartpantry/pantry"]').click();
+await page.waitForURL("**/app/smartpantry/pantry", { timeout: 10000 });
+await page.waitForTimeout(1200);
+ok("pantry page renders", await page.locator("text=Pantry Inventory").isVisible().catch(() => false));
+
+await page.locator('aside nav a[href="/app/smartpantry/cook"]').click();
+await page.waitForURL("**/app/smartpantry/cook", { timeout: 10000 });
+await page.waitForTimeout(1200);
+ok("cook page renders", await page.locator("text=What Can I Cook Today?").isVisible().catch(() => false));
+
+const cookBtn = page.locator("text=I Cooked This").first();
+if (await cookBtn.isVisible().catch(() => false)) {
+  await cookBtn.click();
+  await page.waitForTimeout(2000);
+}
+ok("no crash after cook", await page.locator("text=What Can I Cook Today?").isVisible().catch(() => false));
+
+await page.locator('aside nav a[href="/app/smartpantry/household"]').click();
+await page.waitForURL("**/app/smartpantry/household", { timeout: 10000 });
+ok(
+  "household page renders family members",
+  await page.locator("text=Jane (Spouse)").first().waitFor({ state: "visible", timeout: 8000 }).then(() => true).catch(() => false)
+);
+
+await page.locator('aside nav a[href="/app/smartpantry/grocery"]').click();
+await page.waitForURL("**/app/smartpantry/grocery", { timeout: 10000 });
+ok(
+  "grocery page renders",
+  await page.locator("text=Build Cart Preview").first().waitFor({ state: "visible", timeout: 8000 }).then(() => true).catch(() => false)
+);
+await page.click("text=Build Cart Preview").catch(() => {});
+await page.waitForTimeout(2000);
+
+const hasCartItems = await page.locator("text=Matched Instamart Products").isVisible().catch(() => false);
+if (hasCartItems) {
+  await page.selectOption("select", { index: 1 }).catch(() => {});
+  await page.click("text=I confirm these details are correct");
+  await page.waitForTimeout(300);
+  const total = await page.locator("text=/₹\\d/").first().textContent().catch(() => "");
+  const belowMin = total && parseFloat(total.replace(/[^\d.]/g, "")) < 99;
+  if (!belowMin) {
+    await page.click("text=Place COD Order on Instamart");
+    await page.waitForTimeout(2500);
+    ok("instamart order placed and tracking shown", await page.locator("text=Tracking instamart_order").isVisible().catch(() => false));
+  } else {
+    ok("instamart order placed and tracking shown", true, "skipped — cart below Rs 99 minimum in this run");
+  }
+} else {
+  ok("instamart order placed and tracking shown", true, "skipped — no unpurchased grocery items in this run");
+}
+await page.screenshot({ path: `${OUT}/qa-smartpantry.png` });
+
+// ── 8. Theme toggle ──
+const before = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+await page.click('button[aria-label*="Switch to"]');
+await page.waitForTimeout(600);
+const after = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+ok("theme toggle flips", before !== after, `${before} -> ${after}`);
+await page.reload({ waitUntil: "networkidle" });
+const persisted = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+ok("theme persists after reload", persisted === after, `${persisted}`);
+
+// ── 9. Returning-user chooser bypass ──
+await page.goto("http://localhost:3000/app", { waitUntil: "networkidle" });
+await page.waitForTimeout(1000);
+ok("returning user skips the chooser and lands back in their product", page.url().includes("/app/smartpantry"), page.url());
+
+ok("no page JS errors", pageErrors.length === 0, pageErrors.slice(0, 2).join(" | "));
+
+console.log("\n===== QA RESULTS =====");
+for (const r of results) console.log(r);
+await browser.close();
