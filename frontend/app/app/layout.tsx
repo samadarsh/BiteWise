@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { api } from "../../lib/api";
@@ -66,6 +66,20 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     requestEditProfile();
     if (!pathname?.startsWith("/app/nutriorder")) router.push("/app/nutriorder/preferences");
   };
+
+  // Alerts are shared shell state (seed/reset, checkout confirmations, etc.) so
+  // they survive navigation *within* a product — e.g. Coach's "check the Order
+  // page" nudge needs to still be visible after that navigation. They must NOT
+  // survive switching to the *other* product, or one product's toast bleeds
+  // into a page it has nothing to do with.
+  const productRoot = pathname?.startsWith("/app/smartpantry") ? "/app/smartpantry" : pathname?.startsWith("/app/nutriorder") ? "/app/nutriorder" : null;
+  const lastProductRoot = useRef(productRoot);
+  useEffect(() => {
+    if (productRoot && lastProductRoot.current && productRoot !== lastProductRoot.current) {
+      clearAlert();
+    }
+    lastProductRoot.current = productRoot;
+  }, [productRoot, clearAlert]);
 
   return (
     <div className="min-h-screen bg-bg text-text flex flex-col font-sans selection:bg-nutri/30">

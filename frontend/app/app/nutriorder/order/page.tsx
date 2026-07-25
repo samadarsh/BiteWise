@@ -78,16 +78,20 @@ export default function NutriOrderOrderPage() {
 
       <main className="max-w-4xl w-full mx-auto flex flex-col gap-5">
         {/* Compact delivery selector */}
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-subtle font-semibold">Delivering to</span>
+        <div className="bg-surface border border-border rounded-xl px-4 py-3 flex items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-2 min-w-0">
+            <svg className="h-4 w-4 text-nutri shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0 1 18 0Z" />
+              <circle cx="12" cy="10" r="3" />
+            </svg>
+            <span className="text-xs text-subtle font-semibold shrink-0">Delivering to</span>
             {addresses.length === 0 ? (
               <span className="text-xs text-subtle">No addresses found.</span>
             ) : (
               <select
                 value={selectedAddress}
                 onChange={(e) => handleAddressSelect(e.target.value)}
-                className="text-sm font-bold text-text bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-nutri cursor-pointer"
+                className="min-w-0 flex-1 truncate text-sm font-bold text-text bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-nutri cursor-pointer"
               >
                 <option value="" disabled>
                   Choose address…

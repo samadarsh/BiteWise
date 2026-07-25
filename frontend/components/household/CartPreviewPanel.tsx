@@ -154,6 +154,34 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
         </button>
       </div>
 
+      {/* Resolved first, same as NutriOrder's Order page and Swiggy's own
+          ordering pattern (get_addresses before search/cart/checkout). */}
+      <div className="bg-surface-2 border border-border rounded-xl px-3 py-2.5 flex items-center gap-2 min-w-0">
+        <svg className="h-4 w-4 text-pantry shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0 1 18 0Z" />
+          <circle cx="12" cy="10" r="3" />
+        </svg>
+        <span className="text-xs text-subtle font-semibold shrink-0">Delivering to</span>
+        {addresses.length === 0 ? (
+          <span className="text-xs text-subtle">No addresses found.</span>
+        ) : (
+          <select
+            value={selectedAddress}
+            onChange={(e) => setSelectedAddress(e.target.value)}
+            className="min-w-0 flex-1 truncate text-sm font-bold text-text bg-surface border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-pantry cursor-pointer"
+          >
+            <option value="" disabled>
+              Choose address…
+            </option>
+            {addresses.map((addr) => (
+              <option key={addr.id} value={addr.id}>
+                {addr.label} — {addr.display_text}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
       {!preview ? (
         <div className="py-6 text-center text-subtle text-sm">
           <p>Click &quot;Build Cart Preview&quot; to fetch product matches and price estimates from the Instamart catalog.</p>
@@ -195,28 +223,6 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
 
           {preview.items.length > 0 && (
             <>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-subtle font-semibold shrink-0">Delivering to</span>
-                {addresses.length === 0 ? (
-                  <span className="text-xs text-subtle">No addresses found.</span>
-                ) : (
-                  <select
-                    value={selectedAddress}
-                    onChange={(e) => setSelectedAddress(e.target.value)}
-                    className="text-sm font-bold text-text bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-pantry cursor-pointer"
-                  >
-                    <option value="" disabled>
-                      Choose address…
-                    </option>
-                    {addresses.map((addr) => (
-                      <option key={addr.id} value={addr.id}>
-                        {addr.label} — {addr.display_text}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
               {total >= MAX_ORDER_RUPEES ? (
                 <div className="bg-danger/10 border border-danger/20 rounded-xl p-3 flex items-start gap-2.5 text-xs">
                   <span className="text-danger text-sm">❌</span>
