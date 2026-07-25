@@ -7,6 +7,14 @@ interface OnboardingPanelProps {
   loading: boolean;
 }
 
+const DIET_OPTIONS = [
+  { id: "any", label: "Anything" },
+  { id: "veg", label: "Vegetarian" },
+  { id: "non-veg", label: "Non-Vegetarian" },
+];
+
+const CUISINE_OPTIONS = ["North Indian", "South Indian", "Chinese", "Italian", "Continental", "Mexican", "Thai"];
+
 export default function OnboardingPanel({ profile, onSave, loading }: OnboardingPanelProps) {
   const [age, setAge] = useState<string>(profile.age ? String(profile.age) : "");
   const [gender, setGender] = useState<string>(profile.gender || "male");
@@ -15,6 +23,12 @@ export default function OnboardingPanel({ profile, onSave, loading }: Onboarding
   const [activityLevel, setActivityLevel] = useState<string>(profile.activity_level || "moderate");
   const [budget, setBudget] = useState<number>(profile.meal_budget_default || 300);
   const [goal, setGoal] = useState<string>(profile.fitness_goal || "maintenance");
+  const [dietPreference, setDietPreference] = useState<string>(profile.diet_preference || "any");
+  const [favoriteCuisines, setFavoriteCuisines] = useState<string[]>(profile.favorite_cuisines || []);
+
+  const toggleCuisine = (cuisine: string) => {
+    setFavoriteCuisines((prev) => (prev.includes(cuisine) ? prev.filter((c) => c !== cuisine) : [...prev, cuisine]));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +41,8 @@ export default function OnboardingPanel({ profile, onSave, loading }: Onboarding
       activity_level: activityLevel,
       meal_budget_default: budget,
       fitness_goal: goal,
+      diet_preference: dietPreference,
+      favorite_cuisines: favoriteCuisines,
     });
   };
 
@@ -37,8 +53,8 @@ export default function OnboardingPanel({ profile, onSave, loading }: Onboarding
   return (
     <form onSubmit={handleSubmit} className="bg-surface border border-border p-8 rounded-2xl shadow-xl w-full max-w-xl mx-auto flex flex-col gap-5">
       <div className="text-center">
-        <h3 className="text-xl font-bold text-text">Set Up Your Biometric Profile</h3>
-        <p className="text-xs text-muted mt-1">We calculate precise daily energy expenditure &amp; meal macro targets</p>
+        <h3 className="text-xl font-bold text-text">Set Up Your Profile</h3>
+        <p className="text-xs text-muted mt-1">Biometrics for precise macro targets, plus what you actually like to eat</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -93,12 +109,53 @@ export default function OnboardingPanel({ profile, onSave, loading }: Onboarding
         </div>
       </div>
 
+      <div className="border-t border-border pt-5 flex flex-col gap-5">
+        <div>
+          <label className={labelCls}>Diet Preference</label>
+          <div className="grid grid-cols-3 gap-2">
+            {DIET_OPTIONS.map((opt) => {
+              const active = dietPreference === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setDietPreference(opt.id)}
+                  className={`text-xs font-semibold py-2.5 px-1 rounded-lg border transition ${active ? "bg-nutri border-nutri text-nutri-contrast font-bold" : "bg-surface-2 border-border text-muted hover:border-border-strong"}`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <label className={labelCls}>Favorite Cuisines (optional)</label>
+          <div className="flex flex-wrap gap-2">
+            {CUISINE_OPTIONS.map((cuisine) => {
+              const selected = favoriteCuisines.includes(cuisine);
+              return (
+                <button
+                  key={cuisine}
+                  type="button"
+                  onClick={() => toggleCuisine(cuisine)}
+                  className={`text-xs px-2.5 py-1.5 rounded-full border transition ${selected ? "bg-nutri/10 border-nutri text-nutri font-semibold" : "bg-surface-2 border-border text-muted hover:border-border-strong"}`}
+                >
+                  {selected ? "✓ " : ""}
+                  {cuisine}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
       <button
         type="submit"
         disabled={loading}
         className="w-full bg-nutri hover:brightness-105 disabled:opacity-50 text-nutri-contrast font-bold py-3 rounded-xl transition text-sm shadow-md flex items-center justify-center gap-2 mt-2"
       >
-        {loading ? "Saving Biometrics…" : "Calculate Biometrics & Save"}
+        {loading ? "Saving Profile…" : "Save Profile & Get Recommendations"}
       </button>
     </form>
   );
