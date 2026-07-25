@@ -27,7 +27,7 @@ function CoverageBar({ pct }: { pct: number }) {
   );
 }
 
-function RecipeResultCard({ recipe, onAddMissing, adding }: { recipe: RecipeSuggestion; onAddMissing: () => void; adding: boolean }) {
+function RecipeResultCard({ recipe, onAddMissing, adding, added }: { recipe: RecipeSuggestion; onAddMissing: () => void; adding: boolean; added: boolean }) {
   return (
     <div className="bg-surface border border-border rounded-xl p-5 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
@@ -43,13 +43,17 @@ function RecipeResultCard({ recipe, onAddMissing, adding }: { recipe: RecipeSugg
       {recipe.missing_items.length > 0 ? (
         <div className="flex flex-col gap-2">
           <p className="text-xs text-subtle">Missing: {recipe.missing_items.map((m) => m.name).join(", ")}</p>
-          <button
-            onClick={onAddMissing}
-            disabled={adding}
-            className="self-start bg-pantry hover:brightness-105 disabled:opacity-50 text-pantry-contrast font-bold text-xs px-3 py-2 rounded-lg transition"
-          >
-            {adding ? "Adding…" : "Add missing to grocery list"}
-          </button>
+          {added ? (
+            <p className="text-xs text-success font-semibold">✅ Added to your grocery list.</p>
+          ) : (
+            <button
+              onClick={onAddMissing}
+              disabled={adding}
+              className="self-start bg-pantry hover:brightness-105 disabled:opacity-50 text-pantry-contrast font-bold text-xs px-3 py-2 rounded-lg transition"
+            >
+              {adding ? "Adding…" : "Add missing to grocery list"}
+            </button>
+          )}
         </div>
       ) : (
         <p className="text-xs text-success font-semibold">Everything&apos;s in stock.</p>
@@ -66,12 +70,14 @@ export default function SmartPantryKitchenPage() {
   const [result, setResult] = useState<KitchenResolveResponse | null>(null);
   const [addingMissing, setAddingMissing] = useState(false);
   const [addingItems, setAddingItems] = useState(false);
+  const [addedForRecipe, setAddedForRecipe] = useState<string | null>(null);
 
   const submit = async (q: string) => {
     const trimmed = q.trim();
     if (!trimmed) return;
     setLoading(true);
     setResult(null);
+    setAddedForRecipe(null);
     try {
       const res = await api.resolveKitchenQuery(trimmed);
       setResult(res);
@@ -88,6 +94,7 @@ export default function SmartPantryKitchenPage() {
       for (const item of recipe.missing_items) {
         await handleAddGrocery({ item_name: item.name, quantity: 1, unit: "unit" });
       }
+      setAddedForRecipe(recipe.name);
       showAlert(`Added ${recipe.missing_items.length} item(s) to your grocery list.`, "success");
     } catch (err) {
       showAlert(`Failed to add items: ${err instanceof Error ? err.message : String(err)}`, "error");
@@ -180,7 +187,7 @@ export default function SmartPantryKitchenPage() {
       {result && (
         <div className="flex flex-col gap-3">
           {result.intent === "recipe" && result.recipe && "coverage_pct" in result.recipe && (
-            <RecipeResultCard recipe={result.recipe} onAddMissing={() => addMissingToGrocery(result.recipe as RecipeSuggestion)} adding={addingMissing} />
+            <RecipeResultCard recipe={result.recipe} onAddMissing={() => addMissingToGrocery(result.recipe as RecipeSuggestion)} adding={addingMissing} added={addedForRecipe === result.recipe.name} />
           )}
 
           {result.intent === "recipe_conflict" && result.recipe && "reason" in result.recipe && (
@@ -207,7 +214,7 @@ export default function SmartPantryKitchenPage() {
             <div className="flex flex-col gap-3">
               <p className="text-xs text-subtle">No exact match — here&apos;s what&apos;s worth cooking with what you have:</p>
               {result.browse_suggestions.map((r) => (
-                <RecipeResultCard key={r.name} recipe={r} onAddMissing={() => addMissingToGrocery(r)} adding={addingMissing} />
+                <RecipeResultCard key={r.name} recipe={r} onAddMissing={() => addMissingToGrocery(r)} adding={addingMissing} added={addedForRecipe === r.name} />
               ))}
             </div>
           )}
