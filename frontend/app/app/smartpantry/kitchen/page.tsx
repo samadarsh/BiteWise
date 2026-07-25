@@ -5,6 +5,7 @@ import { api, KitchenResolveResponse, RecipeSuggestion } from "../../../../lib/a
 import { useSmartPantry } from "../../../../lib/smartpantry-context";
 import { useDashboard } from "../../../../lib/dashboard-context";
 import LowStockAlerts from "../../../../components/household/LowStockAlerts";
+import CookTodayPanel from "../../../../components/household/CookTodayPanel";
 import DemoStoryBanner from "../../../../components/DemoStoryBanner";
 
 function Spinner({ className = "" }: { className?: string }) {
@@ -58,7 +59,7 @@ function RecipeResultCard({ recipe, onAddMissing, adding }: { recipe: RecipeSugg
 }
 
 export default function SmartPantryKitchenPage() {
-  const { pantry, handleAddGrocery, loadData } = useSmartPantry();
+  const { pantry, handleAddGrocery, handleMatchRecipe, loadData } = useSmartPantry();
   const { showAlert } = useDashboard();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -134,9 +135,13 @@ export default function SmartPantryKitchenPage() {
       <DemoStoryBanner context={pantry.length === 0 ? "household_empty" : "household_populated"} />
 
       <div className="max-w-3xl w-full mx-auto flex flex-col gap-5">
+        <LowStockAlerts onRefreshData={loadData} />
+
+        <CookTodayPanel onPlanRecipe={handleMatchRecipe} onCookSuccess={loadData} />
+
         <div className="text-center">
-          <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-text">What do you want to cook — or need to order?</h2>
-          <p className="text-xs sm:text-sm text-subtle mt-1.5">Name a dish, describe a craving, or just list what you need.</p>
+          <h2 className="text-lg sm:text-xl font-bold tracking-tight text-text">Craving something specific?</h2>
+          <p className="text-xs sm:text-sm text-subtle mt-1.5">Name a dish, describe a craving, or just list what you need — we&apos;ll check it against your pantry first.</p>
         </div>
 
       <form
@@ -228,8 +233,6 @@ export default function SmartPantryKitchenPage() {
           )}
         </div>
       )}
-
-        <LowStockAlerts onRefreshData={loadData} />
       </div>
     </div>
   );

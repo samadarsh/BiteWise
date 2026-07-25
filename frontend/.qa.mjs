@@ -171,15 +171,104 @@ await page.waitForTimeout(300);
 await page.click('aside a[href="/app/smartpantry"]');
 await page.waitForURL("**/app/smartpantry/kitchen", { timeout: 10000 });
 ok("nav switches to smartpantry", page.url().includes("/app/smartpantry/kitchen"));
-ok("sidebar sub-nav shows Kitchen/Pantry/Cook/Grocery/Household", await page.locator("aside nav a", { hasText: "Household" }).isVisible().catch(() => false));
+ok("sidebar sub-nav order is Kitchen, Pantry, Grocery, Household", await (async () => {
+  const items = await page.locator("aside nav a").allTextContents();
+  const labels = items.map((t) => t.trim()).filter(Boolean);
+  return JSON.stringify(labels) === JSON.stringify(["Kitchen", "Pantry", "Grocery", "Household"]);
+})());
+
+// A fresh guest session (own browser context — not just a new tab in `ctx` —
+// own demo-login, own empty household) so we can exercise the SmartPantry
+// onboarding wizard while it's genuinely gated. Cookies and localStorage are
+// shared by every page within one BrowserContext, so a demo-login on a page
+// inside `ctx` would silently overwrite the main `page`'s session too; a
+// separate context keeps them fully isolated. The main `page` above already
+// has a seeded, non-empty pantry by this point (the demo seed populates both
+// products), so the wizard would never trigger on it anyway.
+{
+  const wizardCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const wizardPage = await wizardCtx.newPage();
+  // Bypass the landing page's CTA click-through — its demo button is gated
+  // behind a swiggy-status fetch that can silently fail (and hide the button)
+  // under the concurrent backend load the main `page` is generating by this
+  // point in the run. A direct demo-login call is the same effective action,
+  // just without that fragile dependency.
+  await wizardPage.goto("http://localhost:3000/", { waitUntil: "networkidle" });
+  await wizardPage.evaluate(async () => {
+    const r = await fetch("http://localhost:8000/auth/demo-login", { method: "POST", credentials: "include" });
+    const d = await r.json();
+    localStorage.setItem("bitewise_session_id", d.session_token);
+    localStorage.setItem("bitewise_chosen_product", "/app/smartpantry");
+  });
+  // Note: while onboarding is showing, the SmartPantryGate renders the wizard
+  // instead of `children` — so `/app/smartpantry`'s own redirect to `/kitchen`
+  // doesn't fire until onboarding completes. That's fine for a real user (the
+  // wizard renders correctly either way), so wait on content, not the URL.
+  await wizardPage.goto("http://localhost:3000/app/smartpantry", { waitUntil: "networkidle" });
+  await wizardPage.locator("text=What do you already have at home?").waitFor({ state: "visible", timeout: 10000 });
+
+  ok("wizard stock step shows, pre-checked", await wizardPage.locator("text=What do you already have at home?").isVisible().catch(() => false));
+  const riceCheckbox = wizardPage.locator("label", { hasText: "Rice" }).locator('input[type="checkbox"]');
+  ok("stock items are checked by default", await riceCheckbox.isChecked().catch(() => false));
+
+  await wizardPage.click("text=Deselect All");
+  await wizardPage.waitForTimeout(200);
+  const continueDisabled = await wizardPage.locator("button", { hasText: "Continue" }).isDisabled().catch(() => false);
+  ok("stock step Continue disables when everything is deselected", continueDisabled);
+
+  await riceCheckbox.check();
+  await wizardPage.waitForTimeout(200);
+  ok("stock step Continue re-enables once something is checked", !(await wizardPage.locator("button", { hasText: "Continue" }).isDisabled().catch(() => true)));
+
+  await wizardPage.click("text=Continue");
+  await wizardPage.waitForTimeout(1500);
+  ok("wizard cook-query step shows", await wizardPage.locator("text=What's on your mind to cook?").isVisible().catch(() => false));
+
+  await wizardPage.fill("textarea", "maggi noodles");
+  await wizardPage.waitForTimeout(300); // let the controlled input settle before clicking, or submit() reads a stale empty query
+  await wizardPage.click("button:has-text('Check it')");
+  await wizardPage.waitForTimeout(2500);
+  ok("cook-query step resolves a live preview against the just-stocked pantry", (await wizardPage.locator("h4", { hasText: "Maggi Noodles" }).count()) > 0);
+
+  await wizardPage.click("button:has-text('Continue')");
+  await wizardPage.waitForTimeout(500);
+  ok("wizard household step shows", await wizardPage.locator("text=Who else are you cooking for?").isVisible().catch(() => false));
+
+  await wizardPage.click("text=Take Me to My Kitchen");
+  await wizardPage.waitForTimeout(1200);
+  ok(
+    "finishing the wizard lands on the Kitchen hub, not back in onboarding",
+    (await wizardPage.locator("text=What Can I Cook Today?").isVisible().catch(() => false)) &&
+      !(await wizardPage.locator("text=What do you already have at home?").isVisible().catch(() => false))
+  );
+
+  await wizardPage.reload({ waitUntil: "networkidle" });
+  await wizardPage.waitForTimeout(1000);
+  ok(
+    "onboarding does not re-trigger on reload once the pantry is stocked",
+    !(await wizardPage.locator("text=What do you already have at home?").isVisible().catch(() => false))
+  );
+
+  await wizardCtx.close();
+}
+
+ok("what-can-I-cook panel shows on Kitchen (merged, not a separate page)", await page.locator("text=What Can I Cook Today?").isVisible().catch(() => false));
+const cookBtn = page.locator("text=I Cooked This").first();
+if (await cookBtn.isVisible().catch(() => false)) {
+  await cookBtn.click();
+  await page.waitForTimeout(2000);
+}
+ok("no crash after cook", await page.locator("text=What Can I Cook Today?").isVisible().catch(() => false));
 
 await page.fill("textarea", "maggi noodles");
-await page.click("text=Go");
+await page.waitForTimeout(300); // let the controlled input settle before clicking, or the resolve call fires with a stale/empty query
+await page.click("button:text-is('Go')");
 await page.waitForTimeout(2500);
 ok("composer resolves named dish", await page.locator("text=Maggi Noodles").first().isVisible().catch(() => false));
 
 await page.fill("textarea", "chips, coke");
-await page.click("text=Go");
+await page.waitForTimeout(300);
+await page.click("button:text-is('Go')");
 await page.waitForTimeout(2000);
 ok("composer resolves grocery-item intent", await page.locator("text=Add to your grocery list?").isVisible().catch(() => false));
 await page.click("text=/Add all \\d+ to grocery list/").catch(() => {});
@@ -190,17 +279,10 @@ await page.waitForURL("**/app/smartpantry/pantry", { timeout: 10000 });
 await page.waitForTimeout(1200);
 ok("pantry page renders", await page.locator("text=Pantry Inventory").isVisible().catch(() => false));
 
-await page.locator('aside nav a[href="/app/smartpantry/cook"]').click();
-await page.waitForURL("**/app/smartpantry/cook", { timeout: 10000 });
-await page.waitForTimeout(1200);
-ok("cook page renders", await page.locator("text=What Can I Cook Today?").isVisible().catch(() => false));
-
-const cookBtn = page.locator("text=I Cooked This").first();
-if (await cookBtn.isVisible().catch(() => false)) {
-  await cookBtn.click();
-  await page.waitForTimeout(2000);
-}
-ok("no crash after cook", await page.locator("text=What Can I Cook Today?").isVisible().catch(() => false));
+ok("cook page redirects to kitchen (no longer a standalone route)", await (async () => {
+  await page.goto("http://localhost:3000/app/smartpantry/cook", { waitUntil: "networkidle" });
+  return page.url().endsWith("/app/smartpantry/kitchen");
+})());
 
 await page.locator('aside nav a[href="/app/smartpantry/household"]').click();
 await page.waitForURL("**/app/smartpantry/household", { timeout: 10000 });

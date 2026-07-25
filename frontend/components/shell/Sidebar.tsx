@@ -124,15 +124,6 @@ const SUB_NAV: Record<string, SubNavItem[]> = {
       ),
     },
     {
-      href: "/app/smartpantry/cook",
-      label: "Cook",
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 21h18M6 21V10a6 6 0 0 1 12 0v11" />
-        </svg>
-      ),
-    },
-    {
       href: "/app/smartpantry/grocery",
       label: "Grocery",
       icon: (
