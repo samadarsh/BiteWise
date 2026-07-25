@@ -56,7 +56,7 @@ export default function LowStockAlerts({ onRefreshData }: LowStockAlertsProps) {
   const urgencyClass = (urgency: string) => {
     if (urgency === "today") return "border-danger/30 bg-danger/5 text-danger";
     if (urgency === "tomorrow") return "border-brand/30 bg-brand/5 text-brand";
-    return "border-warning/30 bg-warning/5 text-yellow-300";
+    return "border-warning/30 bg-warning/5 text-warning";
   };
 
   const urgencyIcon = (urgency: string) => {
