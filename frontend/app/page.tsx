@@ -1,8 +1,34 @@
 'use client';
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
+import {
+  Target,
+  SearchCheck,
+  ShieldCheck,
+  ChartColumn,
+  Zap,
+  BatteryMedium,
+  CookingPot,
+  AlarmClock,
+  Users,
+  ShoppingCart,
+  House,
+  Package,
+  Soup,
+  ClipboardList,
+  ShoppingBag,
+  ArrowRight,
+  type LucideIcon,
+} from "lucide-react";
 import { api, fetchAuthStatus, BiteWiseUser } from "../lib/api";
+import { Reveal } from "../components/landing/Reveal";
+import { StatCounter } from "../components/landing/StatCounter";
+import { MarqueeStrip } from "../components/landing/MarqueeStrip";
+import { PhoneMockup } from "../components/landing/PhoneMockup";
+import { NutriOrderShowcase } from "../components/landing/NutriOrderShowcase";
+import { SmartPantryShowcase } from "../components/landing/SmartPantryShowcase";
 
 interface SwiggyConfigStatus {
   use_mock_mcp: boolean;
@@ -13,6 +39,132 @@ interface SwiggyConfigStatus {
   client_secret_configured: boolean;
   redirect_uri_configured: boolean;
 }
+
+const heroStagger = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.1, delayChildren: 0.1 } },
+};
+const heroItem = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] as const } },
+};
+
+function rememberChosenProduct(product: "/app/nutriorder" | "/app/smartpantry") {
+  try {
+    localStorage.setItem("bitewise_chosen_product", product);
+  } catch {
+    /* ignore */
+  }
+}
+
+const CAPABILITY_CHIPS = [
+  "Swiggy MCP",
+  "Explainable Ranking",
+  "Safety-Gated Orders",
+  "Household-Aware",
+  "Deterministic Engine",
+  "Nutrition Ledger",
+];
+
+const NUTRIORDER_STEPS = [
+  {
+    step: "01",
+    title: "Set your health profile",
+    desc: "Define calorie target, protein needs, dietary preference (veg/non-veg/vegan), allergies, cuisine preferences, and daily budget. The profile stays across sessions.",
+  },
+  {
+    step: "02",
+    title: "Get ranked meal recommendations",
+    desc: "The ranking engine scores available Swiggy meals across 5 factors: nutrition fit, cost efficiency, delivery time, taste match, and availability. Each meal shows exactly why it scored the way it did.",
+  },
+  {
+    step: "03",
+    title: "Review cart and apply coupons",
+    desc: "Before any order, you see the full cart breakdown — item details, pricing, applicable coupons, delivery fee, and payment methods. Nothing happens without your review.",
+  },
+  {
+    step: "04",
+    title: "Confirm and place order",
+    desc: "Explicit confirmation required. Order placement is safety-gated: environment locks, order caps, and payment method checks all run before any Swiggy API mutation.",
+  },
+  {
+    step: "05",
+    title: "Track and log nutrition",
+    desc: "Real-time order tracking through Swiggy MCP. After delivery, the meal's macros are logged to your nutrition ledger — building a persistent history of your food choices.",
+  },
+];
+
+const NUTRIORDER_FEATURES: { icon: LucideIcon; title: string; desc: string }[] = [
+  { icon: Target, title: "Multi-factor ranking", desc: "5 scoring dimensions: nutrition, cost, time, taste, availability — not just calories" },
+  { icon: SearchCheck, title: "Explainable results", desc: "Every recommendation shows exactly why it ranked high or low, with per-factor breakdowns" },
+  { icon: ShieldCheck, title: "Safety-gated ordering", desc: "Environment locks, order caps, and explicit confirmation prevent accidental or unsafe orders" },
+  { icon: ChartColumn, title: "Nutrition ledger", desc: "Persistent log of meals ordered, macros consumed, and nutritional history over time" },
+];
+
+const SMARTPANTRY_STEPS = [
+  {
+    step: "01",
+    title: "Set up your household",
+    desc: "Create your household and add family members with their dietary preferences (veg/non-veg/vegan), allergies, calorie targets, and protein goals. SmartPantry respects everyone's constraints.",
+  },
+  {
+    step: "02",
+    title: "Stock your kitchen in seconds",
+    desc: "Tap from a pre-populated template of common Indian kitchen items — rice, dal, milk, eggs, onions, spices — and set stock levels (Full, Half, Low, Empty). Stock 30 items in 15 seconds, not 15 minutes of typing.",
+  },
+  {
+    step: "03",
+    title: "Get low-stock and expiry alerts",
+    desc: "SmartPantry watches your pantry: out-of-stock items auto-add to your grocery list, low-stock items show warnings, and perishables nearing expiry get flagged with \"use it or lose it\" recipe suggestions.",
+  },
+  {
+    step: "04",
+    title: "Ask \"What can I cook today?\"",
+    desc: "SmartPantry matches your pantry stock against recipe templates, filters by your family's dietary constraints and allergies, and shows coverage — what you have, what's missing, and how ready each recipe is.",
+  },
+  {
+    step: "05",
+    title: "Auto-build your grocery list",
+    desc: "Missing ingredients from recipes, out-of-stock items, and manual additions all flow into one smart grocery list — grouped by category (Dairy, Staples, Proteins), prioritized (Urgent, Soon, Optional).",
+  },
+  {
+    step: "06",
+    title: "Preview your Instamart cart",
+    desc: "See what your grocery order would look like on Swiggy Instamart: matched products, estimated prices, category totals. Review before you buy — the preview is intelligence, not checkout.",
+  },
+];
+
+const SMARTPANTRY_DIFFERENTIATORS: { icon: LucideIcon; label: string; detail: string }[] = [
+  { icon: Zap, label: "15-second onboarding", detail: "Template kitchen, one-tap stock levels" },
+  { icon: BatteryMedium, label: "Qualitative stock tracking", detail: "Full → Half → Low → Empty, no weighing" },
+  { icon: CookingPot, label: "Auto-decrement on cook", detail: "Pantry updates when you mark a recipe as cooked" },
+  { icon: AlarmClock, label: "Expiry awareness", detail: "\"Your curd expires tomorrow\" triggers action" },
+  { icon: Users, label: "Multi-person dietary filtering", detail: "Veg, allergies, and calorie targets per member" },
+  { icon: ShoppingCart, label: "Intelligent grocery priority", detail: "Urgent → Soon → Optional, auto-categorized" },
+];
+
+const SMARTPANTRY_FEATURES: { icon: LucideIcon; title: string; desc: string }[] = [
+  { icon: House, title: "Household model", desc: "Family members with individual dietary preferences, allergies, calorie and protein targets — shared kitchen, respected constraints." },
+  { icon: Package, title: "Smart pantry tracking", desc: "Battery-style stock levels (Full/Half/Low/Empty). One tap to update. No weighing, no typing quantities. Low-stock auto-alerts." },
+  { icon: Soup, title: "Recipe intelligence", desc: "\"What can I cook today?\" matches pantry stock against recipes, shows coverage, filters by family allergies and diet, and flags missing ingredients." },
+  { icon: ClipboardList, title: "Priority grocery list", desc: "Auto-generated from stock alerts and recipe gaps. Grouped by category. Prioritized by urgency. Toggle items as purchased." },
+  { icon: ShoppingBag, title: "Instamart cart preview", desc: "See estimated prices and product matches from Swiggy Instamart. Review the cart before deciding. Intelligence first, checkout later." },
+  { icon: ChartColumn, title: "Household nutrition insights", desc: "Combined calorie and protein targets across all family members. Dietary conflict detection. Allergen aggregation." },
+];
+
+const HOW_IT_WORKS = [
+  { num: "01", title: "Understand the context", body: "BiteWise separates personal nutrition context from shared household context, then routes the user to the right product." },
+  { num: "02", title: "Pick the right surface", body: "NutriOrder AI handles ready-to-eat meals via Swiggy Food MCP. SmartPantry AI handles pantry, recipe, and grocery via Instamart MCP." },
+  { num: "03", title: "Rank and explain", body: "Each product explains its reasoning — meal macro fit, pantry coverage gaps, recipe readiness, grocery priority tiers." },
+  { num: "04", title: "Confirm before action", body: "Orders stay behind review screens, safety locks, payment checks, and explicit user confirmation. No silent mutations." },
+];
+
+const WHY_IT_WORKS = [
+  ["Repeat behavior", "Users eat daily and households restock weekly, so retention comes from recurring decisions, not occasional use."],
+  ["Clear MCP usage", "Swiggy is the execution layer for search, cart, coupon, checkout, and tracking — not a passive data source."],
+  ["Defensible memory", "Nutrition logs, preferences, pantry state, go-to items, and feedback make the assistant more personalized over time."],
+  ["Controlled trust", "Every mutating action stays behind review, explicit confirmation, order caps, and environment locks."],
+];
 
 export default function LandingPage() {
   const [demoLoading, setDemoLoading] = useState(false);
@@ -76,7 +228,7 @@ export default function LandingPage() {
     setMessage("");
     try {
       await api.demoLogin();
-      window.location.href = "/app/nutriorder";
+      window.location.href = "/app";
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setMessage(`Sandbox demo is not available in this environment: ${msg}`);
@@ -95,8 +247,8 @@ export default function LandingPage() {
   ];
 
   return (
-    <main className="min-h-screen bg-[#f7f4ec] text-[#17211c]">
-      {/* Sticky Navbar */}
+    <main className="min-h-screen bg-bg text-text">
+      {/* Sticky Navbar — fixed "ink" brand chrome, deliberately independent of the light/dark toggle */}
       <header
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
           scrolled
@@ -174,33 +326,32 @@ export default function LandingPage() {
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section
-        className="relative min-h-svh overflow-hidden bg-[#17211c] text-white"
-        style={{
-          backgroundImage: "linear-gradient(135deg, rgba(15, 22, 18, 0.96) 0%, rgba(15, 22, 18, 0.80) 40%, rgba(15, 22, 18, 0.40) 100%), url('/landing-food-system.png')",
-          backgroundSize: "cover",
-          backgroundPosition: "center"
-        }}
-      >
-        <div className="relative z-10 mx-auto flex min-h-svh max-w-7xl items-center px-5 pb-16 pt-24 sm:px-8">
-          <div className="max-w-3xl">
-            <div className="mb-5 inline-flex rounded-full border border-[#f4b544]/30 bg-[#f4b544]/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#ffd98a]">
-              NutriOrder AI &middot; SmartPantry AI
-            </div>
-            <h1 className="max-w-3xl text-4xl font-black leading-[1.08] sm:text-5xl md:text-6xl lg:text-7xl">
-              BiteWise
-            </h1>
-            <p className="mt-5 max-w-xl text-base sm:text-lg leading-7 sm:leading-8 text-white/70">
-              One food intelligence platform. Two focused products. NutriOrder AI for health-aware meal ordering. SmartPantry AI for household pantry, recipe, and grocery intelligence.
-            </p>
+      {/* Hero Section — fixed dark brand band with motion entrance + live phone mockup */}
+      <section className="relative min-h-svh overflow-hidden bg-[#0b0f0d] text-white">
+        <div aria-hidden className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-32 -left-24 h-[26rem] w-[26rem] rounded-full bg-[#f4b544]/20 blur-[110px]" />
+          <div className="absolute top-1/3 -right-28 h-[30rem] w-[30rem] rounded-full bg-[#2f6f5e]/25 blur-[130px]" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.05)_1px,transparent_0)] bg-[size:30px_30px]" />
+        </div>
 
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="relative z-10 mx-auto grid min-h-svh max-w-7xl items-center gap-10 px-5 pb-16 pt-24 sm:px-8 lg:grid-cols-[1.05fr_0.95fr] lg:gap-8">
+          <motion.div variants={heroStagger} initial="hidden" animate="show" className="max-w-3xl">
+            <motion.div variants={heroItem} className="mb-5 inline-flex rounded-full border border-[#f4b544]/30 bg-[#f4b544]/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#ffd98a]">
+              NutriOrder AI &middot; SmartPantry AI
+            </motion.div>
+            <motion.h1 variants={heroItem} className="max-w-3xl text-4xl font-black leading-[1.08] sm:text-5xl md:text-6xl lg:text-7xl">
+              BiteWise
+            </motion.h1>
+            <motion.p variants={heroItem} className="mt-5 max-w-xl text-base sm:text-lg leading-7 sm:leading-8 text-white/70">
+              One food intelligence platform. Two focused products. NutriOrder AI for health-aware meal ordering. SmartPantry AI for household pantry, recipe, and grocery intelligence.
+            </motion.p>
+
+            <motion.div variants={heroItem} className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               {sessionLoading ? (
                 <div className="h-12 w-48 rounded-xl bg-white/10 animate-pulse" />
               ) : sessionUser ? (
                 <Link
-                  href="/app/nutriorder"
+                  href="/app"
                   className="rounded-xl bg-[#f4b544] px-7 py-3.5 text-sm font-black text-[#17211c] shadow-[0_12px_40px_rgba(244,181,68,0.25)] transition-all duration-200 hover:bg-[#ffd071] hover:shadow-[0_16px_50px_rgba(244,181,68,0.35)] hover:-translate-y-0.5 inline-block text-center"
                 >
                   Open Dashboard
@@ -208,7 +359,7 @@ export default function LandingPage() {
               ) : (
                 <>
                   <Link
-                    href="/app/nutriorder"
+                    href="/app"
                     className="rounded-xl bg-[#f4b544] px-7 py-3.5 text-sm font-black text-[#17211c] shadow-[0_12px_40px_rgba(244,181,68,0.25)] transition-all duration-200 hover:bg-[#ffd071] hover:shadow-[0_16px_50px_rgba(244,181,68,0.35)] hover:-translate-y-0.5 inline-block text-center"
                   >
                     Get Started Free
@@ -224,28 +375,29 @@ export default function LandingPage() {
                   )}
                   <Link
                     href="/pitch"
-                    className="rounded-xl border border-[#f4b544]/25 bg-[#f4b544]/8 px-7 py-3.5 text-sm font-bold text-[#ffd98a] transition-all duration-200 hover:border-[#f4b544]/50 hover:bg-[#f4b544]/14 hover:-translate-y-0.5 inline-block text-center"
+                    className="group rounded-xl border border-[#f4b544]/25 bg-[#f4b544]/8 px-7 py-3.5 text-sm font-bold text-[#ffd98a] transition-all duration-200 hover:border-[#f4b544]/50 hover:bg-[#f4b544]/14 hover:-translate-y-0.5 inline-flex items-center gap-1.5 text-center"
                   >
-                    Watch the Demo →
+                    Watch the Demo
+                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                   </Link>
                 </>
               )}
-            </div>
+            </motion.div>
 
             {backendOffline && (
-              <div className="mt-6 max-w-xl rounded-xl border border-[#df6b57]/40 bg-[#df6b57]/12 px-5 py-4 text-sm text-[#ffd7cf] text-left">
+              <motion.div variants={heroItem} className="mt-6 max-w-xl rounded-xl border border-[#df6b57]/40 bg-[#df6b57]/12 px-5 py-4 text-sm text-[#ffd7cf] text-left">
                 <p className="font-bold mb-2">Backend is waking up or offline. Render free tier may take ~30 seconds on first visit.</p>
                 <p className="text-xs text-[#ffd7cf]/70">Refresh in a moment, or start the backend locally for instant response.</p>
-              </div>
+              </motion.div>
             )}
 
             {message && !backendOffline && (
-              <p className="mt-5 max-w-xl rounded-xl border border-[#df6b57]/40 bg-[#df6b57]/12 px-5 py-3 text-sm text-[#ffd7cf]">
+              <motion.p variants={heroItem} className="mt-5 max-w-xl rounded-xl border border-[#df6b57]/40 bg-[#df6b57]/12 px-5 py-3 text-sm text-[#ffd7cf]">
                 {message}
-              </p>
+              </motion.p>
             )}
 
-            <dl className="mt-10 grid max-w-lg grid-cols-2 sm:grid-cols-4 gap-4 text-white">
+            <motion.dl variants={heroItem} className="mt-10 grid max-w-lg grid-cols-2 sm:grid-cols-4 gap-4 text-white">
               {[
                 ["2", "Focused products"],
                 ["54+", "Verified tests"],
@@ -253,12 +405,23 @@ export default function LandingPage() {
                 ["0", "Unsafe mutations"],
               ].map(([num, label]) => (
                 <div key={label} className="border-l border-white/15 pl-4">
-                  <dt className="text-2xl font-black">{num}</dt>
+                  <dt className="text-2xl font-black">
+                    <StatCounter value={num} />
+                  </dt>
                   <dd className="mt-0.5 text-[11px] text-white/50 leading-tight">{label}</dd>
                 </div>
               ))}
-            </dl>
-          </div>
+            </motion.dl>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, scale: 0.92, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            className="flex justify-center lg:justify-end"
+          >
+            <PhoneMockup />
+          </motion.div>
         </div>
 
         {/* Scroll Indicator */}
@@ -268,110 +431,62 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Capability marquee */}
+      <div className="border-y border-border-strong bg-surface-2 py-5">
+        <MarqueeStrip items={CAPABILITY_CHIPS} />
+      </div>
+
       {/* ═══════════════════════════════════════════════════════ */}
       {/* NutriOrder AI — Detailed Section                       */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section id="nutriorder" className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-24">
         <div className="grid gap-12 lg:grid-cols-[1fr_1.1fr] lg:items-start">
           {/* Left: Description */}
-          <div>
-            <p className="text-xs font-black uppercase tracking-widest text-[#2f6f5e]">Product 01</p>
+          <Reveal>
+            <p className="text-xs font-black uppercase tracking-widest text-nutri">Product 01</p>
             <h2 className="mt-3 text-3xl sm:text-4xl md:text-5xl font-black leading-tight">NutriOrder AI</h2>
-            <p className="mt-2 text-sm font-bold text-[#2f6f5e]">Health-aware meal ordering through Swiggy</p>
-            <p className="mt-5 text-sm sm:text-base leading-7 text-[#546158]">
+            <p className="mt-2 text-sm font-bold text-nutri">Health-aware meal ordering through Swiggy</p>
+            <p className="mt-5 text-sm sm:text-base leading-7 text-muted">
               NutriOrder AI is the personal nutrition coach. You set your health profile — calories, protein targets, dietary preference, allergies, and budget — and the system finds the best-fit meals on Swiggy, explains why they rank high, and lets you order with full cart control.
             </p>
-            <p className="mt-4 text-sm sm:text-base leading-7 text-[#546158]">
+            <p className="mt-4 text-sm sm:text-base leading-7 text-muted">
               Every recommendation comes with an explainability breakdown: macro fit percentage, cost score, delivery time, taste profile, and availability. You see the reasoning, not just the result.
             </p>
-          </div>
+          </Reveal>
 
-          {/* Right: Workflow Steps */}
-          <div className="space-y-4">
-            {[
-              {
-                step: "01",
-                title: "Set your health profile",
-                desc: "Define calorie target, protein needs, dietary preference (veg/non-veg/vegan), allergies, cuisine preferences, and daily budget. The profile stays across sessions.",
-                color: "text-[#2f6f5e]",
-                borderColor: "border-[#2f6f5e]/20",
-                bg: "bg-[#2f6f5e]/5"
-              },
-              {
-                step: "02",
-                title: "Get ranked meal recommendations",
-                desc: "The ranking engine scores available Swiggy meals across 5 factors: nutrition fit, cost efficiency, delivery time, taste match, and availability. Each meal shows exactly why it scored the way it did.",
-                color: "text-[#2f6f5e]",
-                borderColor: "border-[#2f6f5e]/20",
-                bg: "bg-[#2f6f5e]/5"
-              },
-              {
-                step: "03",
-                title: "Review cart and apply coupons",
-                desc: "Before any order, you see the full cart breakdown — item details, pricing, applicable coupons, delivery fee, and payment methods. Nothing happens without your review.",
-                color: "text-[#2f6f5e]",
-                borderColor: "border-[#2f6f5e]/20",
-                bg: "bg-[#2f6f5e]/5"
-              },
-              {
-                step: "04",
-                title: "Confirm and place order",
-                desc: "Explicit confirmation required. Order placement is safety-gated: environment locks, order caps, and payment method checks all run before any Swiggy API mutation.",
-                color: "text-[#2f6f5e]",
-                borderColor: "border-[#2f6f5e]/20",
-                bg: "bg-[#2f6f5e]/5"
-              },
-              {
-                step: "05",
-                title: "Track and log nutrition",
-                desc: "Real-time order tracking through Swiggy MCP. After delivery, the meal's macros are logged to your nutrition ledger — building a persistent history of your food choices.",
-                color: "text-[#2f6f5e]",
-                borderColor: "border-[#2f6f5e]/20",
-                bg: "bg-[#2f6f5e]/5"
-              }
-            ].map((item) => (
-              <div key={item.step} className={`group rounded-xl border ${item.borderColor} ${item.bg} p-5 sm:p-6 transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5`}>
-                <div className="flex items-start gap-4">
-                  <span className={`text-xs font-black ${item.color} mt-0.5 shrink-0`}>{item.step}</span>
-                  <div>
-                    <h3 className="text-sm sm:text-base font-bold text-[#17211c]">{item.title}</h3>
-                    <p className="mt-1.5 text-xs sm:text-sm leading-6 text-[#546158]">{item.desc}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+          {/* Right: Live Interactive Showcase */}
+          <Reveal delay={0.1}>
+            <NutriOrderShowcase />
+          </Reveal>
         </div>
 
-        <div className="mt-8">
+        <Reveal className="mt-8">
           <Link
             href="/app/nutriorder"
-            className="inline-flex items-center gap-2 rounded-xl bg-[#2f6f5e] px-6 py-3 text-sm font-black text-white shadow-lg transition-all duration-200 hover:bg-[#1f7a5c] hover:-translate-y-0.5"
+            onClick={() => rememberChosenProduct("/app/nutriorder")}
+            className="inline-flex items-center gap-2 rounded-xl bg-nutri px-6 py-3 text-sm font-black text-nutri-contrast shadow-lg transition-all duration-200 hover:brightness-110 hover:-translate-y-0.5"
           >
-            Try NutriOrder AI <span aria-hidden>→</span>
+            Try NutriOrder AI <ArrowRight className="h-4 w-4" />
           </Link>
-        </div>
+        </Reveal>
 
         {/* NutriOrder Key Features Grid */}
         <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            { icon: "🎯", title: "Multi-factor ranking", desc: "5 scoring dimensions: nutrition, cost, time, taste, availability — not just calories" },
-            { icon: "🔍", title: "Explainable results", desc: "Every recommendation shows exactly why it ranked high or low, with per-factor breakdowns" },
-            { icon: "🛡️", title: "Safety-gated ordering", desc: "Environment locks, order caps, and explicit confirmation prevent accidental or unsafe orders" },
-            { icon: "📊", title: "Nutrition ledger", desc: "Persistent log of meals ordered, macros consumed, and nutritional history over time" },
-          ].map((feat) => (
-            <div key={feat.title} className="rounded-xl border border-[#d6cdbd] bg-white p-5 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
-              <span className="text-2xl">{feat.icon}</span>
-              <h4 className="mt-3 text-sm font-bold text-[#17211c]">{feat.title}</h4>
-              <p className="mt-1.5 text-xs leading-5 text-[#546158]">{feat.desc}</p>
-            </div>
+          {NUTRIORDER_FEATURES.map((feat, i) => (
+            <Reveal key={feat.title} delay={i * 0.06}>
+              <div className="rounded-xl border border-border-strong bg-surface p-5 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
+                <feat.icon className="h-6 w-6 text-nutri" strokeWidth={2} />
+                <h4 className="mt-3 text-sm font-bold text-text">{feat.title}</h4>
+                <p className="mt-1.5 text-xs leading-5 text-muted">{feat.desc}</p>
+              </div>
+            </Reveal>
           ))}
         </div>
       </section>
 
       {/* Divider */}
       <div className="mx-auto max-w-7xl px-5 sm:px-8">
-        <hr className="border-[#d6cdbd]" />
+        <hr className="border-border-strong" />
       </div>
 
       {/* ═══════════════════════════════════════════════════════ */}
@@ -379,176 +494,94 @@ export default function LandingPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       <section id="smartpantry" className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-24">
         <div className="grid gap-12 lg:grid-cols-[1.1fr_1fr] lg:items-start">
-          {/* Left: Workflow Steps */}
-          <div className="space-y-4 order-2 lg:order-1">
-            {[
-              {
-                step: "01",
-                title: "Set up your household",
-                desc: "Create your household and add family members with their dietary preferences (veg/non-veg/vegan), allergies, calorie targets, and protein goals. SmartPantry respects everyone's constraints.",
-                color: "text-[#b24f3d]",
-                borderColor: "border-[#b24f3d]/20",
-                bg: "bg-[#b24f3d]/5"
-              },
-              {
-                step: "02",
-                title: "Stock your kitchen in seconds",
-                desc: "Tap from a pre-populated template of common Indian kitchen items — rice, dal, milk, eggs, onions, spices — and set stock levels (Full, Half, Low, Empty). Stock 30 items in 15 seconds, not 15 minutes of typing.",
-                color: "text-[#b24f3d]",
-                borderColor: "border-[#b24f3d]/20",
-                bg: "bg-[#b24f3d]/5"
-              },
-              {
-                step: "03",
-                title: "Get low-stock and expiry alerts",
-                desc: "SmartPantry watches your pantry: out-of-stock items auto-add to your grocery list, low-stock items show warnings, and perishables nearing expiry get flagged with \"use it or lose it\" recipe suggestions.",
-                color: "text-[#b24f3d]",
-                borderColor: "border-[#b24f3d]/20",
-                bg: "bg-[#b24f3d]/5"
-              },
-              {
-                step: "04",
-                title: "Ask \"What can I cook today?\"",
-                desc: "SmartPantry matches your pantry stock against recipe templates, filters by your family's dietary constraints and allergies, and shows coverage — what you have, what's missing, and how ready each recipe is.",
-                color: "text-[#b24f3d]",
-                borderColor: "border-[#b24f3d]/20",
-                bg: "bg-[#b24f3d]/5"
-              },
-              {
-                step: "05",
-                title: "Auto-build your grocery list",
-                desc: "Missing ingredients from recipes, out-of-stock items, and manual additions all flow into one smart grocery list — grouped by category (Dairy, Staples, Proteins), prioritized (Urgent, Soon, Optional).",
-                color: "text-[#b24f3d]",
-                borderColor: "border-[#b24f3d]/20",
-                bg: "bg-[#b24f3d]/5"
-              },
-              {
-                step: "06",
-                title: "Preview your Instamart cart",
-                desc: "See what your grocery order would look like on Swiggy Instamart: matched products, estimated prices, category totals. Review before you buy — the preview is intelligence, not checkout.",
-                color: "text-[#b24f3d]",
-                borderColor: "border-[#b24f3d]/20",
-                bg: "bg-[#b24f3d]/5"
-              }
-            ].map((item) => (
-              <div key={item.step} className={`group rounded-xl border ${item.borderColor} ${item.bg} p-5 sm:p-6 transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5`}>
-                <div className="flex items-start gap-4">
-                  <span className={`text-xs font-black ${item.color} mt-0.5 shrink-0`}>{item.step}</span>
-                  <div>
-                    <h3 className="text-sm sm:text-base font-bold text-[#17211c]">{item.title}</h3>
-                    <p className="mt-1.5 text-xs sm:text-sm leading-6 text-[#5d5b51]">{item.desc}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+          {/* Left: Live Interactive Showcase */}
+          <div className="order-2 lg:order-1">
+            <Reveal delay={0.1}>
+              <SmartPantryShowcase />
+            </Reveal>
           </div>
 
           {/* Right: Description */}
           <div className="order-1 lg:order-2 lg:sticky lg:top-28">
-            <p className="text-xs font-black uppercase tracking-widest text-[#b24f3d]">Product 02</p>
-            <h2 className="mt-3 text-3xl sm:text-4xl md:text-5xl font-black leading-tight">SmartPantry AI</h2>
-            <p className="mt-2 text-sm font-bold text-[#b24f3d]">Household food intelligence for your kitchen</p>
-            <p className="mt-5 text-sm sm:text-base leading-7 text-[#5d5b51]">
-              SmartPantry AI manages the food lifecycle that happens between restaurant orders. It understands your kitchen: what&apos;s in stock, what&apos;s running low, what&apos;s expiring, what you can cook tonight, and what you need to buy.
-            </p>
-            <p className="mt-4 text-sm sm:text-base leading-7 text-[#5d5b51]">
-              It&apos;s built for households — families where one person is vegetarian, another is allergic to peanuts, and everyone has different calorie needs. SmartPantry filters, plans, and restocks around all of those constraints.
-            </p>
-            <p className="mt-4 text-sm sm:text-base leading-7 text-[#5d5b51]">
-              The intelligence is deterministic and rule-based — no LLM hallucinations, no API-key dependencies. Fast, testable, and reproducible recommendations every time.
-            </p>
+            <Reveal>
+              <p className="text-xs font-black uppercase tracking-widest text-pantry">Product 02</p>
+              <h2 className="mt-3 text-3xl sm:text-4xl md:text-5xl font-black leading-tight">SmartPantry AI</h2>
+              <p className="mt-2 text-sm font-bold text-pantry">Household food intelligence for your kitchen</p>
+              <p className="mt-5 text-sm sm:text-base leading-7 text-muted">
+                SmartPantry AI manages the food lifecycle that happens between restaurant orders. It understands your kitchen: what&apos;s in stock, what&apos;s running low, what&apos;s expiring, what you can cook tonight, and what you need to buy.
+              </p>
+              <p className="mt-4 text-sm sm:text-base leading-7 text-muted">
+                It&apos;s built for households — families where one person is vegetarian, another is allergic to peanuts, and everyone has different calorie needs. SmartPantry filters, plans, and restocks around all of those constraints.
+              </p>
+              <p className="mt-4 text-sm sm:text-base leading-7 text-muted">
+                The intelligence is deterministic and rule-based — no LLM hallucinations, no API-key dependencies. Fast, testable, and reproducible recommendations every time.
+              </p>
+            </Reveal>
 
             {/* SmartPantry Differentiators */}
             <div className="mt-8 space-y-3">
-              {[
-                { icon: "⚡", label: "15-second onboarding", detail: "Template kitchen, one-tap stock levels" },
-                { icon: "🔋", label: "Qualitative stock tracking", detail: "Full → Half → Low → Empty, no weighing" },
-                { icon: "🍳", label: "Auto-decrement on cook", detail: "Pantry updates when you mark a recipe as cooked" },
-                { icon: "⏰", label: "Expiry awareness", detail: "\"Your curd expires tomorrow\" triggers action" },
-                { icon: "👨‍👩‍👧‍👦", label: "Multi-person dietary filtering", detail: "Veg, allergies, and calorie targets per member" },
-                { icon: "🛒", label: "Intelligent grocery priority", detail: "Urgent → Soon → Optional, auto-categorized" },
-              ].map((d) => (
-                <div key={d.label} className="flex items-start gap-3 rounded-lg bg-[#fffaf0] border border-[#b24f3d]/10 p-3.5">
-                  <span className="text-lg mt-0.5 shrink-0">{d.icon}</span>
-                  <div>
-                    <p className="text-sm font-bold text-[#17211c]">{d.label}</p>
-                    <p className="text-xs text-[#5d5b51] mt-0.5">{d.detail}</p>
+              {SMARTPANTRY_DIFFERENTIATORS.map((d, i) => (
+                <Reveal key={d.label} delay={i * 0.05}>
+                  <div className="flex items-start gap-3 rounded-lg bg-surface-2 border border-pantry/10 p-3.5">
+                    <d.icon className="h-5 w-5 mt-0.5 shrink-0 text-pantry" strokeWidth={2} />
+                    <div>
+                      <p className="text-sm font-bold text-text">{d.label}</p>
+                      <p className="text-xs text-muted mt-0.5">{d.detail}</p>
+                    </div>
                   </div>
-                </div>
+                </Reveal>
               ))}
             </div>
           </div>
         </div>
 
-        <div className="mt-8">
+        <Reveal className="mt-8">
           <Link
             href="/app/smartpantry"
-            className="inline-flex items-center gap-2 rounded-xl bg-[#b24f3d] px-6 py-3 text-sm font-black text-white shadow-lg transition-all duration-200 hover:bg-[#b45c2e] hover:-translate-y-0.5"
+            onClick={() => rememberChosenProduct("/app/smartpantry")}
+            className="inline-flex items-center gap-2 rounded-xl bg-pantry px-6 py-3 text-sm font-black text-pantry-contrast shadow-lg transition-all duration-200 hover:brightness-110 hover:-translate-y-0.5"
           >
-            Try SmartPantry AI <span aria-hidden>→</span>
+            Try SmartPantry AI <ArrowRight className="h-4 w-4" />
           </Link>
-        </div>
+        </Reveal>
 
         {/* SmartPantry Key Features Grid */}
         <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[
-            { icon: "🏡", title: "Household model", desc: "Family members with individual dietary preferences, allergies, calorie and protein targets — shared kitchen, respected constraints." },
-            { icon: "📦", title: "Smart pantry tracking", desc: "Battery-style stock levels (Full/Half/Low/Empty). One tap to update. No weighing, no typing quantities. Low-stock auto-alerts." },
-            { icon: "🍲", title: "Recipe intelligence", desc: "\"What can I cook today?\" matches pantry stock against recipes, shows coverage, filters by family allergies and diet, and flags missing ingredients." },
-            { icon: "📋", title: "Priority grocery list", desc: "Auto-generated from stock alerts and recipe gaps. Grouped by category. Prioritized by urgency. Toggle items as purchased." },
-            { icon: "🛍️", title: "Instamart cart preview", desc: "See estimated prices and product matches from Swiggy Instamart. Review the cart before deciding. Intelligence first, checkout later." },
-            { icon: "📊", title: "Household nutrition insights", desc: "Combined calorie and protein targets across all family members. Dietary conflict detection. Allergen aggregation." },
-          ].map((feat) => (
-            <div key={feat.title} className="rounded-xl border border-[#d6cdbd] bg-[#fffaf0] p-5 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
-              <span className="text-2xl">{feat.icon}</span>
-              <h4 className="mt-3 text-sm font-bold text-[#17211c]">{feat.title}</h4>
-              <p className="mt-1.5 text-xs leading-5 text-[#5d5b51]">{feat.desc}</p>
-            </div>
+          {SMARTPANTRY_FEATURES.map((feat, i) => (
+            <Reveal key={feat.title} delay={i * 0.05}>
+              <div className="rounded-xl border border-border-strong bg-surface-2 p-5 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
+                <feat.icon className="h-6 w-6 text-pantry" strokeWidth={2} />
+                <h4 className="mt-3 text-sm font-bold text-text">{feat.title}</h4>
+                <p className="mt-1.5 text-xs leading-5 text-muted">{feat.desc}</p>
+              </div>
+            </Reveal>
           ))}
         </div>
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* How It Works                                           */}
+      {/* How It Works — fixed dark brand band                   */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section id="how-it-works" className="bg-[#17211c] px-5 py-16 text-white sm:px-8 sm:py-24">
-        <div className="mx-auto max-w-7xl">
-          <div className="max-w-2xl">
+      <section id="how-it-works" className="relative overflow-hidden bg-[#17211c] px-5 py-16 text-white sm:px-8 sm:py-24">
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.05)_1px,transparent_0)] bg-[size:30px_30px]" />
+        <div className="relative mx-auto max-w-7xl">
+          <Reveal className="max-w-2xl">
             <p className="text-xs font-black uppercase tracking-widest text-[#f4b544]">Operating model</p>
             <h2 className="mt-3 text-3xl sm:text-4xl font-black">One platform, two focused food products</h2>
             <p className="mt-4 text-sm leading-6 text-white/60">
               BiteWise keeps the experiences separate enough to feel clear, while sharing the same identity, safety patterns, and Swiggy MCP execution layer.
             </p>
-          </div>
+          </Reveal>
 
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              {
-                num: "01",
-                title: "Understand the context",
-                body: "BiteWise separates personal nutrition context from shared household context, then routes the user to the right product."
-              },
-              {
-                num: "02",
-                title: "Pick the right surface",
-                body: "NutriOrder AI handles ready-to-eat meals via Swiggy Food MCP. SmartPantry AI handles pantry, recipe, and grocery via Instamart MCP."
-              },
-              {
-                num: "03",
-                title: "Rank and explain",
-                body: "Each product explains its reasoning — meal macro fit, pantry coverage gaps, recipe readiness, grocery priority tiers."
-              },
-              {
-                num: "04",
-                title: "Confirm before action",
-                body: "Orders stay behind review screens, safety locks, payment checks, and explicit user confirmation. No silent mutations."
-              }
-            ].map((step) => (
-              <article key={step.num} className="group rounded-2xl border border-white/10 bg-white/5 p-6 transition-all duration-300 hover:border-[#f4b544]/30 hover:bg-white/8">
-                <p className="text-sm font-black text-[#f4b544] transition-transform duration-300 group-hover:scale-110 inline-block">{step.num}</p>
-                <h3 className="mt-4 text-base sm:text-lg font-black">{step.title}</h3>
-                <p className="mt-3 text-sm leading-6 text-white/55">{step.body}</p>
-              </article>
+            {HOW_IT_WORKS.map((step, i) => (
+              <Reveal key={step.num} delay={i * 0.08}>
+                <article className="group h-full rounded-2xl border border-white/10 bg-white/5 p-6 transition-all duration-300 hover:border-[#f4b544]/30 hover:bg-white/8">
+                  <p className="text-sm font-black text-[#f4b544] transition-transform duration-300 group-hover:scale-110 inline-block">{step.num}</p>
+                  <h3 className="mt-4 text-base sm:text-lg font-black">{step.title}</h3>
+                  <p className="mt-3 text-sm leading-6 text-white/55">{step.body}</p>
+                </article>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -559,24 +592,21 @@ export default function LandingPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       <section id="safety" className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-24">
         <div className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
-          <div className="flex flex-col justify-center">
-            <p className="text-xs font-black uppercase tracking-widest text-[#405c91]">Why this direction works</p>
+          <Reveal className="flex flex-col justify-center">
+            <p className="text-xs font-black uppercase tracking-widest text-info">Why this direction works</p>
             <h2 className="mt-3 text-3xl sm:text-4xl font-black leading-tight">It becomes a food operating layer, not another ordering wrapper.</h2>
-            <p className="mt-4 text-sm leading-7 text-[#546158]">
+            <p className="mt-4 text-sm leading-7 text-muted">
               Most food apps solve one moment — ordering. BiteWise solves the full cycle: what to eat, what to cook, what to buy, and when to restock. The more a household uses it, the more accurate it gets.
             </p>
-          </div>
+          </Reveal>
           <div className="grid gap-4 sm:grid-cols-2">
-            {[
-              ["Repeat behavior", "Users eat daily and households restock weekly, so retention comes from recurring decisions, not occasional use."],
-              ["Clear MCP usage", "Swiggy is the execution layer for search, cart, coupon, checkout, and tracking — not a passive data source."],
-              ["Defensible memory", "Nutrition logs, preferences, pantry state, go-to items, and feedback make the assistant more personalized over time."],
-              ["Controlled trust", "Every mutating action stays behind review, explicit confirmation, order caps, and environment locks."]
-            ].map(([title, body]) => (
-              <article key={title} className="group rounded-2xl border border-[#d6cdbd] bg-white p-6 shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5">
-                <h3 className="text-base sm:text-lg font-black">{title}</h3>
-                <p className="mt-3 text-sm leading-6 text-[#59645d]">{body}</p>
-              </article>
+            {WHY_IT_WORKS.map(([title, body], i) => (
+              <Reveal key={title} delay={i * 0.06}>
+                <article className="group h-full rounded-2xl border border-border-strong bg-surface p-6 shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5">
+                  <h3 className="text-base sm:text-lg font-black text-text">{title}</h3>
+                  <p className="mt-3 text-sm leading-6 text-muted">{body}</p>
+                </article>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -591,8 +621,8 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-5">
             <Link href="/pitch" className="text-white/40 hover:text-white/70 transition-colors">Demo</Link>
-            <Link href="/app/nutriorder" className="text-white/40 hover:text-white/70 transition-colors">NutriOrder AI</Link>
-            <Link href="/app/smartpantry" className="text-white/40 hover:text-white/70 transition-colors">SmartPantry AI</Link>
+            <Link href="/app/nutriorder" onClick={() => rememberChosenProduct("/app/nutriorder")} className="text-white/40 hover:text-white/70 transition-colors">NutriOrder AI</Link>
+            <Link href="/app/smartpantry" onClick={() => rememberChosenProduct("/app/smartpantry")} className="text-white/40 hover:text-white/70 transition-colors">SmartPantry AI</Link>
             <a href="https://github.com/samadarsh/BiteWise" target="_blank" rel="noopener noreferrer" className="text-white/40 hover:text-white/70 transition-colors">GitHub</a>
           </div>
           <p className="text-white/30">© 2025 BiteWise</p>
