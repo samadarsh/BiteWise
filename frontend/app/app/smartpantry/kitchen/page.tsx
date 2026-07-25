@@ -58,7 +58,7 @@ function RecipeResultCard({ recipe, onAddMissing, adding }: { recipe: RecipeSugg
 }
 
 export default function SmartPantryKitchenPage() {
-  const { handleAddGrocery, loadData } = useSmartPantry();
+  const { pantry, handleAddGrocery, loadData } = useSmartPantry();
   const { showAlert } = useDashboard();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -131,7 +131,7 @@ export default function SmartPantryKitchenPage() {
         </div>
       </div>
 
-      <DemoStoryBanner context="household_populated" />
+      <DemoStoryBanner context={pantry.length === 0 ? "household_empty" : "household_populated"} />
 
       <div className="max-w-3xl w-full mx-auto flex flex-col gap-5">
         <div className="text-center">
@@ -188,7 +188,17 @@ export default function SmartPantryKitchenPage() {
             </div>
           )}
 
-          {result.intent === "browse" && result.browse_suggestions && (
+          {result.intent === "browse" && result.browse_suggestions && pantry.length === 0 && (
+            <div className="bg-surface border border-border rounded-xl p-5 flex items-start gap-2.5 text-sm">
+              <span className="text-lg">📦</span>
+              <div>
+                <p className="font-bold text-text">Your pantry&apos;s empty, so I can&apos;t tell what&apos;s realistic yet</p>
+                <p className="text-muted text-xs mt-0.5">Name a specific dish and I&apos;ll tell you what you&apos;d need — or add a few staples in Pantry first.</p>
+              </div>
+            </div>
+          )}
+
+          {result.intent === "browse" && result.browse_suggestions && pantry.length > 0 && (
             <div className="flex flex-col gap-3">
               <p className="text-xs text-subtle">No exact match — here&apos;s what&apos;s worth cooking with what you have:</p>
               {result.browse_suggestions.map((r) => (
