@@ -3,13 +3,26 @@
 import React from "react";
 import { useNutriOrder } from "../../../../lib/nutriorder-context";
 import OnboardingPanel from "../../../../components/OnboardingPanel";
+import PriorityControls from "../../../../components/PriorityControls";
 
 export default function NutriOrderPreferencesPage() {
-  const { profile, proteinTarget, calorieTarget, dietPreference, allergies, dislikes, favCuisines, fitnessGoal, authLoading, handleOnboardingSave } =
-    useNutriOrder();
+  const {
+    profile,
+    proteinTarget,
+    calorieTarget,
+    dietPreference,
+    allergies,
+    dislikes,
+    favCuisines,
+    fitnessGoal,
+    authLoading,
+    handleOnboardingSave,
+    priorityWeights,
+    setPriorityWeights,
+  } = useNutriOrder();
 
   return (
-    <main className="max-w-xl w-full mx-auto px-4 py-6 flex flex-col items-center gap-4">
+    <main className="max-w-xl w-full mx-auto px-4 py-6 flex flex-col items-center gap-6">
       <div className="text-center">
         <h2 className="text-lg font-bold text-text">Preferences</h2>
         <p className="text-xs text-subtle mt-1">Update your biometrics anytime — targets recalculate automatically.</p>
@@ -33,6 +46,9 @@ export default function NutriOrderPreferencesPage() {
         onSave={handleOnboardingSave}
         loading={authLoading}
       />
+      <div className="w-full">
+        <PriorityControls weights={priorityWeights} onChange={setPriorityWeights} />
+      </div>
     </main>
   );
 }
