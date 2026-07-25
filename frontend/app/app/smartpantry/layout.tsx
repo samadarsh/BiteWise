@@ -2,10 +2,12 @@
 
 import React, { useEffect, useState } from "react";
 import { SmartPantryProvider, useSmartPantry } from "../../../lib/smartpantry-context";
+import { useDashboard } from "../../../lib/dashboard-context";
 import SmartPantryOnboardingWizard from "../../../components/onboarding-smartpantry/SmartPantryOnboardingWizard";
 
 function SmartPantryGate({ children }: { children: React.ReactNode }) {
   const { household, pantry, loading, error, handleQuickStock, handleAddGrocery, handleAddMember, handleDeleteMember } = useSmartPantry();
+  const { setOnboardingBlocking } = useDashboard();
 
   // The onboarding decision is captured once, the first time loading finishes,
   // and never re-derived from live `pantry` state afterward — stocking the
@@ -20,6 +22,16 @@ function SmartPantryGate({ children }: { children: React.ReactNode }) {
       setShowOnboarding(pantry.length === 0);
     }
   }, [loading, pantry.length, showOnboarding]);
+
+  // The sidebar renders one level up from this gate and has no idea whether
+  // we're showing the wizard or the real page — without this it lets you
+  // click into Pantry/Grocery/Household mid-onboarding, the URL changes and
+  // the sidebar highlights it, but this gate still renders the wizard
+  // regardless of route, so nothing visible actually happens.
+  useEffect(() => {
+    setOnboardingBlocking(showOnboarding === true);
+    return () => setOnboardingBlocking(false);
+  }, [showOnboarding, setOnboardingBlocking]);
 
   if (loading || showOnboarding === null) {
     return (

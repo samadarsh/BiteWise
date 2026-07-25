@@ -23,6 +23,12 @@ interface DashboardContextType {
   editProfileRequested: boolean;
   requestEditProfile: () => void;
   clearEditProfileRequest: () => void;
+
+  /** Set by whichever product's onboarding gate is currently showing its wizard
+   * instead of the real page — the sidebar reads this to stop offering sub-nav
+   * links that would change the URL without changing what's on screen. */
+  onboardingBlocking: boolean;
+  setOnboardingBlocking: (blocking: boolean) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -31,6 +37,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [dataVersion, setDataVersion] = useState(0);
   const [alert, setAlert] = useState<DashboardAlert | null>(null);
   const [editProfileRequested, setEditProfileRequested] = useState(false);
+  const [onboardingBlocking, setOnboardingBlocking] = useState(false);
 
   const refreshData = useCallback(() => setDataVersion((v) => v + 1), []);
   const showAlert = useCallback((message: string, type: AlertType = "info") => setAlert({ message, type }), []);
@@ -49,6 +56,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         editProfileRequested,
         requestEditProfile,
         clearEditProfileRequest,
+        onboardingBlocking,
+        setOnboardingBlocking,
       }}
     >
       {children}

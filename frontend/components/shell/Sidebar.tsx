@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useDashboard } from "../../lib/dashboard-context";
 
 /** Keeps /app's "which product should a returning visit land on" flag current
  * whenever the user switches products from inside the app, not just their
@@ -150,6 +151,7 @@ const SUB_NAV: Record<string, SubNavItem[]> = {
 /** Desktop-only sidebar with a workspace-style product switcher pinned below the header. */
 export function Sidebar() {
   const pathname = usePathname();
+  const { onboardingBlocking } = useDashboard();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -242,6 +244,18 @@ export function Sidebar() {
           <span className="px-2.5 pb-1 text-[10px] font-black uppercase tracking-wider text-subtle">{current.label}</span>
           {SUB_NAV[current.href].map((item) => {
             const isActive = pathname === item.href;
+            if (onboardingBlocking) {
+              return (
+                <span
+                  key={item.href}
+                  title="Finish setup to unlock this"
+                  className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-semibold text-subtle opacity-50 cursor-not-allowed"
+                >
+                  <span className="h-4 w-4 shrink-0">{item.icon}</span>
+                  {item.label}
+                </span>
+              );
+            }
             return (
               <Link
                 key={item.href}
@@ -271,6 +285,7 @@ export function Sidebar() {
  */
 export function MobileProductNav() {
   const pathname = usePathname();
+  const { onboardingBlocking } = useDashboard();
   const current = PRODUCTS.find((p) => pathname?.startsWith(p.href)) ?? null;
   const subNav = current ? SUB_NAV[current.href] : undefined;
 
@@ -302,6 +317,18 @@ export function MobileProductNav() {
         <nav className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1">
           {subNav.map((item) => {
             const isActive = pathname === item.href;
+            if (onboardingBlocking) {
+              return (
+                <span
+                  key={item.href}
+                  title="Finish setup to unlock this"
+                  className="flex items-center gap-1.5 shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-subtle bg-surface border border-border opacity-50 cursor-not-allowed"
+                >
+                  <span className="h-3.5 w-3.5 shrink-0">{item.icon}</span>
+                  {item.label}
+                </span>
+              );
+            }
             return (
               <Link
                 key={item.href}

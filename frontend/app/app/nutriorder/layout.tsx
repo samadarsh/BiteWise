@@ -1,9 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NutriOrderProvider, useNutriOrder } from "../../../lib/nutriorder-context";
+import { useDashboard } from "../../../lib/dashboard-context";
 import OnboardingPanel from "../../../components/OnboardingPanel";
 import OnboardingWizard from "../../../components/onboarding/OnboardingWizard";
 
@@ -36,6 +37,19 @@ function NutriOrderGate({ children }: { children: React.ReactNode }) {
     setPriorityWeights,
   } = useNutriOrder();
   const pathname = usePathname();
+  const { setOnboardingBlocking } = useDashboard();
+
+  const profileIncomplete = !profile || !profile.weight_kg || !profile.height_cm || !profile.age;
+
+  // The sidebar renders one level up from this gate and has no idea whether
+  // we're showing the wizard or the real page — without this it lets you
+  // click into Coach/Order/History/Preferences mid-onboarding, the URL
+  // changes and the sidebar highlights it, but this gate still renders the
+  // wizard regardless of route, so nothing visible actually happens.
+  useEffect(() => {
+    setOnboardingBlocking(!profileFetching && profileIncomplete);
+    return () => setOnboardingBlocking(false);
+  }, [profileFetching, profileIncomplete, setOnboardingBlocking]);
 
   if (profileFetching) {
     return (
@@ -45,8 +59,6 @@ function NutriOrderGate({ children }: { children: React.ReactNode }) {
       </main>
     );
   }
-
-  const profileIncomplete = !profile || !profile.weight_kg || !profile.height_cm || !profile.age;
   const fallbackProfile = {
     protein_target: proteinTarget,
     calorie_target: calorieTarget,
