@@ -67,9 +67,11 @@ export default function AppIndexPage() {
   return (
     <div className="w-full flex-1 flex flex-col items-center justify-center py-12 sm:py-20 px-4">
       <div className="text-center mb-12 sm:mb-16 max-w-xl">
-        <p className="text-xs font-black uppercase tracking-[0.2em] text-subtle mb-3">Welcome to BiteWise</p>
-        <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-text leading-[1.1]">Which platform do you want to open?</h1>
-        <p className="text-sm sm:text-base text-muted mt-4">You can switch anytime from the sidebar — this only picks where you land today.</p>
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-subtle mb-3">BiteWise</p>
+        <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-text leading-[1.1]">What are you here for today?</h1>
+        <p className="text-sm sm:text-base text-muted mt-4">
+          NutriOrder AI keeps your goals on track. SmartPantry AI keeps your kitchen stocked. Switch anytime.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-3xl">
