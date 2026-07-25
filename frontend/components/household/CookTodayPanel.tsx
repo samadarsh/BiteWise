@@ -36,8 +36,10 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
 
   const handlePlanRecipe = async (recipe: RecipeSuggestion) => {
     setPlanningRecipe(recipe.name);
+    setCookMessage(null);
     try {
       const today = new Date().toISOString().split("T")[0];
+      const missingCount = recipe.missing_items.length;
       await onPlanRecipe({
         recipe_name: recipe.name,
         ingredients: recipe.missing_items.map((mi) => ({
@@ -47,6 +49,8 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
         })),
         planned_for_date: today,
       });
+      setCookMessage(`✅ Added ${missingCount} item${missingCount === 1 ? "" : "s"} to your grocery list for ${recipe.name}.`);
+      setTimeout(() => setCookMessage(null), 5000);
       await loadSuggestions();
     } catch {
       alert("Failed to plan recipe");
@@ -61,7 +65,7 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
     try {
       const res = await api.cookRecipe(recipeName);
       if (res.success) {
-        setCookMessage(`Cooked ${recipeName}! Pantry items updated.`);
+        setCookMessage(`🎉 Cooked ${recipeName}! Pantry items updated.`);
         setTimeout(() => setCookMessage(null), 5000);
         
         await loadSuggestions();
@@ -129,7 +133,7 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
 
       {cookMessage && (
         <div className="p-3 rounded-xl border border-nutri/30 bg-nutri/10 text-nutri text-xs font-semibold">
-          🎉 {cookMessage}
+          {cookMessage}
         </div>
       )}
 
