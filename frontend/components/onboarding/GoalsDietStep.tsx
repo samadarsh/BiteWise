@@ -47,8 +47,22 @@ export default function GoalsDietStep({
     onNext();
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
+    if (e.key !== "Enter") return;
+    const target = e.target as HTMLElement;
+    if (target.tagName === "BUTTON") return;
+    e.preventDefault();
+    const fields = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("input, select"));
+    const index = fields.indexOf(target);
+    if (index > -1 && index < fields.length - 1) {
+      fields[index + 1].focus();
+    } else {
+      onNext();
+    }
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="bg-surface border border-border p-8 rounded-2xl shadow-xl w-full flex flex-col gap-5">
+    <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="bg-surface border border-border p-8 rounded-2xl shadow-xl w-full flex flex-col gap-5">
       <div className="text-center">
         <h3 className="text-xl font-bold text-text">Goals &amp; Diet</h3>
         <p className="text-xs text-muted mt-1">What you&apos;re working toward, and what you actually eat</p>
