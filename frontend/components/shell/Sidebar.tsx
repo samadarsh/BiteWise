@@ -253,28 +253,59 @@ export function Sidebar() {
   );
 }
 
-/** Compact horizontal switcher shown below the header on small screens, in place of the sidebar. */
+/**
+ * Compact horizontal switcher shown below the header on small screens, in
+ * place of the sidebar. Includes the current product's sub-nav too — the
+ * desktop Sidebar carries that, but it's hidden below md, so without this
+ * a mobile user landing on e.g. Coach or Pantry has no way to reach its
+ * sibling pages within the same product.
+ */
 export function MobileProductNav() {
   const pathname = usePathname();
+  const current = PRODUCTS.find((p) => pathname?.startsWith(p.href)) ?? null;
+  const subNav = current ? SUB_NAV[current.href] : undefined;
 
   return (
-    <nav className="grid grid-cols-2 gap-2 md:hidden">
-      {PRODUCTS.map((item) => {
-        const isActive = pathname?.startsWith(item.href) ?? false;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            aria-current={isActive ? "page" : undefined}
-            className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-all duration-200 ${
-              isActive ? `border-transparent ${item.activeBg}` : "border-border bg-surface hover:border-border-strong"
-            }`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${item.dot}`} />
-            <span className={`text-xs font-bold truncate ${isActive ? item.accent : "text-text"}`}>{item.label}</span>
-          </Link>
-        );
-      })}
-    </nav>
+    <div className="flex flex-col gap-2 md:hidden">
+      <nav className="grid grid-cols-2 gap-2">
+        {PRODUCTS.map((item) => {
+          const isActive = pathname?.startsWith(item.href) ?? false;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={isActive ? "page" : undefined}
+              className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-all duration-200 ${
+                isActive ? `border-transparent ${item.activeBg}` : "border-border bg-surface hover:border-border-strong"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${item.dot}`} />
+              <span className={`text-xs font-bold truncate ${isActive ? item.accent : "text-text"}`}>{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      {subNav && subNav.length > 0 && (
+        <nav className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1">
+          {subNav.map((item) => {
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={isActive ? "page" : undefined}
+                className={`flex items-center gap-1.5 shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                  isActive ? `${current!.accent} ${current!.activeBg}` : "text-muted bg-surface border border-border hover:border-border-strong"
+                }`}
+              >
+                <span className="h-3.5 w-3.5 shrink-0">{item.icon}</span>
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+    </div>
   );
 }
