@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field
 from datetime import date, datetime
 
@@ -35,3 +35,33 @@ class NutritionEntrySchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class WeightLogRequest(BaseModel):
+    weight_kg: float = Field(..., gt=0, le=500)
+
+
+class WeightEntrySchema(BaseModel):
+    id: int
+    user_id: str
+    weight_kg: float
+    entry_date: date
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DayTrendSchema(BaseModel):
+    date: date
+    calories: float
+    protein: float
+    target_calories: float
+    target_protein: float
+    hit_target: bool
+
+
+class TrendsResponse(BaseModel):
+    days: List[DayTrendSchema]
+    current_streak: int
+    best_streak: int

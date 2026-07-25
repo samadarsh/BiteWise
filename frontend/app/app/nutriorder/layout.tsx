@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NutriOrderProvider, useNutriOrder } from "../../../lib/nutriorder-context";
 import OnboardingPanel from "../../../components/OnboardingPanel";
+import OnboardingWizard from "../../../components/onboarding/OnboardingWizard";
 
 function Spinner({ className = "" }: { className?: string }) {
   return (
@@ -31,6 +32,8 @@ function NutriOrderGate({ children }: { children: React.ReactNode }) {
     handleOnboardingSave,
     placedOrderId,
     selectedMeal,
+    priorityWeights,
+    setPriorityWeights,
   } = useNutriOrder();
   const pathname = usePathname();
 
@@ -43,28 +46,42 @@ function NutriOrderGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!profile || !profile.weight_kg || !profile.height_cm || !profile.age || editingProfile) {
+  const profileIncomplete = !profile || !profile.weight_kg || !profile.height_cm || !profile.age;
+  const fallbackProfile = {
+    protein_target: proteinTarget,
+    calorie_target: calorieTarget,
+    diet_preference: dietPreference,
+    allergies,
+    dislikes,
+    favorite_cuisines: favCuisines,
+    fitness_goal: fitnessGoal,
+    activity_level: "moderate",
+    meal_budget_default: 300,
+    preferred_meal_times: {},
+    spice_tolerance: "medium",
+  };
+
+  // Genuinely first-time setup gets the guided multi-step wizard. A returning
+  // user clicking "Edit Profile" just wants a quick tweak, not a 5-step replay
+  // — they get the plain single-form editor instead.
+  if (profileIncomplete) {
     return (
       <main className="max-w-xl w-full mx-auto px-4 py-6 flex items-center justify-center">
-        <OnboardingPanel
-          profile={
-            profile || {
-              protein_target: proteinTarget,
-              calorie_target: calorieTarget,
-              diet_preference: dietPreference,
-              allergies,
-              dislikes,
-              favorite_cuisines: favCuisines,
-              fitness_goal: fitnessGoal,
-              activity_level: "moderate",
-              meal_budget_default: 300,
-              preferred_meal_times: {},
-              spice_tolerance: "medium",
-            }
-          }
+        <OnboardingWizard
+          profile={profile || fallbackProfile}
           onSave={handleOnboardingSave}
           loading={authLoading}
+          priorityWeights={priorityWeights}
+          onPriorityWeightsChange={setPriorityWeights}
         />
+      </main>
+    );
+  }
+
+  if (editingProfile) {
+    return (
+      <main className="max-w-xl w-full mx-auto px-4 py-6 flex items-center justify-center">
+        <OnboardingPanel profile={profile || fallbackProfile} onSave={handleOnboardingSave} loading={authLoading} />
       </main>
     );
   }

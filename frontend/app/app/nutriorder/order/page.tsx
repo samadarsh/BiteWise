@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useNutriOrder } from "../../../../lib/nutriorder-context";
+import { api, CoachStatusResponse } from "../../../../lib/api";
 import RecommendationCard from "../../../../components/RecommendationCard";
 import RelaxationOptions from "../../../../components/RelaxationOptions";
 import DemoStoryBanner from "../../../../components/DemoStoryBanner";
@@ -71,7 +73,18 @@ export default function NutriOrderOrderPage() {
     handleFeedbackSubmit,
   } = useNutriOrder();
 
+  const router = useRouter();
   const [tuneOpen, setTuneOpen] = useState(false);
+  const [todayStatus, setTodayStatus] = useState<CoachStatusResponse | null>(null);
+
+  useEffect(() => {
+    api.getCoachStatus().then(setTodayStatus).catch(() => {});
+  }, []);
+
+  const handleOrderSomethingElse = () => {
+    handleReset();
+    router.push("/app/nutriorder/coach");
+  };
 
   if (placedOrderId) {
     return (
@@ -144,7 +157,7 @@ export default function NutriOrderOrderPage() {
             </div>
           </div>
 
-          <button onClick={handleReset} className="mt-2 sm:mt-6 self-center bg-surface-2 hover:bg-surface-3 border border-border text-text font-semibold px-5 sm:px-6 py-2.5 rounded-lg text-xs sm:text-sm transition-all">Order Something Else</button>
+          <button onClick={handleOrderSomethingElse} className="mt-2 sm:mt-6 self-center bg-surface-2 hover:bg-surface-3 border border-border text-text font-semibold px-5 sm:px-6 py-2.5 rounded-lg text-xs sm:text-sm transition-all">Back to Coach</button>
         </div>
 
         {showFeedbackModal && (
@@ -203,6 +216,13 @@ export default function NutriOrderOrderPage() {
         <div className="text-center">
           <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-text">What do you want to eat?</h1>
           <p className="text-xs sm:text-sm text-subtle mt-1.5">Describe a craving, a macro target, or a budget — I&apos;ll find the best match.</p>
+          {todayStatus && (
+            <p className="text-[11px] text-subtle mt-2">
+              Today so far: <span className="font-semibold text-text">{Math.round(todayStatus.consumed_calories)} kcal · {Math.round(todayStatus.consumed_protein)}g protein</span>
+              {" — "}
+              <span className="text-nutri font-semibold">{Math.round(todayStatus.remaining_calories)} kcal to go</span>
+            </p>
+          )}
         </div>
 
         <form onSubmit={handleQuerySearch} className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-3 shadow-sm">

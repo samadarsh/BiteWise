@@ -59,16 +59,19 @@ export default function NextMealSuggestion({ onSelectMeal }: NextMealSuggestionP
   };
 
   return (
-    <div className="bg-surface-2 border border-border rounded-xl p-4 flex flex-col gap-3">
-      <div className="flex justify-between items-center">
-        <span className="text-subtle font-bold uppercase tracking-wider text-[10px]">💡 Next Meal Adviser</span>
-        {loading && <span className="text-[10px] text-info font-mono animate-pulse">Analyzing…</span>}
+    <div className="bg-info/5 border border-info/20 rounded-2xl p-5 flex flex-col gap-3">
+      <div className="flex justify-between items-start gap-3">
+        <div>
+          <h3 className="text-sm font-bold text-text">What do you need next?</h3>
+          <p className="text-[11px] text-subtle mt-0.5">Meals picked to close today&apos;s gap to your goal — not a generic search.</p>
+        </div>
+        {loading && <span className="shrink-0 text-[10px] text-info font-mono animate-pulse">Analyzing…</span>}
       </div>
 
       <button
         onClick={handleFetchNextMeal}
         disabled={loading}
-        className="w-full bg-info hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-lg text-xs transition uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm"
+        className="w-full bg-info hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-md"
       >
         {loading ? "Generating suggestions…" : "Suggest My Next Meal"}
       </button>

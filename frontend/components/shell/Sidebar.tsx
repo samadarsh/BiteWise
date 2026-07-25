@@ -4,6 +4,17 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+/** Keeps /app's "which product should a returning visit land on" flag current
+ * whenever the user switches products from inside the app, not just their
+ * original chooser pick. */
+function rememberChosenProduct(href: string) {
+  try {
+    localStorage.setItem("bitewise_chosen_product", href);
+  } catch {
+    /* ignore */
+  }
+}
+
 interface Product {
   href: string;
   label: string;
@@ -18,7 +29,7 @@ const PRODUCTS: Product[] = [
   {
     href: "/app/nutriorder",
     label: "NutriOrder AI",
-    hint: "Order & coach",
+    hint: "Health coach & order",
     accent: "text-nutri",
     dot: "bg-nutri",
     activeBg: "bg-nutri/10",
@@ -53,21 +64,21 @@ interface SubNavItem {
 const SUB_NAV: Record<string, SubNavItem[]> = {
   "/app/nutriorder": [
     {
+      href: "/app/nutriorder/coach",
+      label: "Coach",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z" />
+        </svg>
+      ),
+    },
+    {
       href: "/app/nutriorder/order",
       label: "Order",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="11" cy="11" r="7" />
           <path d="M21 21l-4.3-4.3" />
-        </svg>
-      ),
-    },
-    {
-      href: "/app/nutriorder/coach",
-      label: "Coach",
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z" />
         </svg>
       ),
     },
@@ -169,6 +180,10 @@ export function Sidebar() {
     };
   }, [open]);
 
+  // No product is "active" on the bare /app chooser route — showing a sidebar
+  // for whichever product happens to be the fallback would be premature.
+  if (pathname === "/app") return null;
+
   return (
     <aside className="hidden md:flex md:flex-col w-60 shrink-0 border-r border-border bg-surface/60 px-3 py-4 sticky top-14 sm:top-16 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)]">
       <span className="px-1 pb-2 text-[10px] font-black uppercase tracking-wider text-subtle">Platform</span>
@@ -207,7 +222,10 @@ export function Sidebar() {
                   key={p.href}
                   href={p.href}
                   role="menuitem"
-                  onClick={() => setOpen(false)}
+                  onClick={() => {
+                    setOpen(false);
+                    rememberChosenProduct(p.href);
+                  }}
                   aria-current={isActive ? "page" : undefined}
                   className={`flex items-center gap-2.5 px-3 py-2.5 transition-colors ${isActive ? p.activeBg : "hover:bg-surface-2"}`}
                 >
@@ -265,6 +283,8 @@ export function MobileProductNav() {
   const current = PRODUCTS.find((p) => pathname?.startsWith(p.href)) ?? null;
   const subNav = current ? SUB_NAV[current.href] : undefined;
 
+  if (pathname === "/app") return null;
+
   return (
     <div className="flex flex-col gap-2 md:hidden">
       <nav className="grid grid-cols-2 gap-2">
@@ -274,6 +294,7 @@ export function MobileProductNav() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={() => rememberChosenProduct(item.href)}
               aria-current={isActive ? "page" : undefined}
               className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-all duration-200 ${
                 isActive ? `border-transparent ${item.activeBg}` : "border-border bg-surface hover:border-border-strong"

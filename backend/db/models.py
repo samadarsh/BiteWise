@@ -116,6 +116,18 @@ class OrderFeedback(Base):
     created_at = Column(DateTime, default=func.now(), nullable=False)
 
 
+class WeightEntry(Base):
+    __tablename__ = "weight_entries"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    weight_kg = Column(Float, nullable=False)
+    entry_date = Column(Date, nullable=False, index=True)
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+
+    user = relationship("User")
+
+
 class NutritionEntry(Base):
     __tablename__ = "nutrition_entries"
 

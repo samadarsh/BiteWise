@@ -16,7 +16,7 @@ export default function NutriOrderCoachPage() {
   };
 
   return (
-    <main className="max-w-3xl w-full mx-auto flex flex-col gap-8">
+    <main className="max-w-4xl w-full mx-auto flex flex-col gap-8">
       <CoachDashboard ref={coachDashboardRef} activeSessionId={activeSessionId} onSelectMeal={handleSelectFromCoach} />
     </main>
   );

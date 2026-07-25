@@ -250,6 +250,29 @@ export interface CoachNextMealResponse {
   results?: RecommendationResponse;
 }
 
+export interface WeightEntry {
+  id: number;
+  user_id: string;
+  weight_kg: number;
+  entry_date: string;
+  created_at: string;
+}
+
+export interface DayTrend {
+  date: string;
+  calories: number;
+  protein: number;
+  target_calories: number;
+  target_protein: number;
+  hit_target: boolean;
+}
+
+export interface TrendsResponse {
+  days: DayTrend[];
+  current_streak: number;
+  best_streak: number;
+}
+
 export interface SwiggyOAuthStartResponse {
   code_challenge: string;
   redirect_url: string;
@@ -561,6 +584,30 @@ export const api = {
     return apiFetch<CoachNextMealResponse>("/coach/next-meal", {
       method: "POST",
     });
+  },
+
+  /**
+   * Logs today's weight and updates the profile's current weight.
+   */
+  async logWeight(weightKg: number): Promise<WeightEntry> {
+    return apiFetch<WeightEntry>("/coach/weight", {
+      method: "POST",
+      body: JSON.stringify({ weight_kg: weightKg }),
+    });
+  },
+
+  /**
+   * Fetches weight entries over the last N days, oldest first.
+   */
+  async getWeightHistory(days: number = 30): Promise<WeightEntry[]> {
+    return apiFetch<WeightEntry[]>(`/coach/weight-history?days=${days}`);
+  },
+
+  /**
+   * Fetches per-day calorie/protein trends and the target-hit streak.
+   */
+  async getCoachTrends(days: number = 7): Promise<TrendsResponse> {
+    return apiFetch<TrendsResponse>(`/coach/trends?days=${days}`);
   },
 
   /**

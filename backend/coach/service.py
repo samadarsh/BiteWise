@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional
-from backend.db.models import UserProfile, NutritionEntry, OrderSession, OrderEvent
+from backend.db.models import UserProfile, NutritionEntry, WeightEntry, OrderSession, OrderEvent
 from backend.coach.models import ManualEntrySchema
 from agent.nutrition_targets import NutritionTargetEngine
 from agent.observability import log_info, log_warn, log_error
@@ -13,27 +13,34 @@ def get_local_today_date() -> datetime.date:
     ist_now = utc_now.astimezone(ZoneInfo("Asia/Kolkata"))
     return ist_now.date()
 
-def get_today_status(db: Session, user_id: str) -> Dict[str, Any]:
-    # 1. Fetch profile to calculate targets
+def _get_daily_targets(db: Session, user_id: str) -> Dict[str, float]:
+    """Current profile's daily calorie/protein targets. Applied to past days too
+    when computing trends — we don't keep historical profile snapshots."""
     profile_rec = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
     if not profile_rec:
-        # Fallbacks if profile doesn't exist yet
-        target_calories = 1950.0
-        target_protein = 105.0
-    else:
-        profile_dict = {
-            "age": profile_rec.age,
-            "gender": profile_rec.gender,
-            "height_cm": profile_rec.height_cm,
-            "weight_kg": profile_rec.weight_kg,
-            "activity_level": profile_rec.activity_level,
-            "fitness_goal": profile_rec.fitness_goal,
-            "calorie_target": profile_rec.calorie_target,
-            "protein_target": profile_rec.protein_target,
-        }
-        targets = NutritionTargetEngine.calculate_targets(profile_dict)
-        target_calories = float(targets.get("daily_calories", 1950.0))
-        target_protein = float(targets.get("daily_protein", 105.0))
+        return {"target_calories": 1950.0, "target_protein": 105.0}
+
+    profile_dict = {
+        "age": profile_rec.age,
+        "gender": profile_rec.gender,
+        "height_cm": profile_rec.height_cm,
+        "weight_kg": profile_rec.weight_kg,
+        "activity_level": profile_rec.activity_level,
+        "fitness_goal": profile_rec.fitness_goal,
+        "calorie_target": profile_rec.calorie_target,
+        "protein_target": profile_rec.protein_target,
+    }
+    targets = NutritionTargetEngine.calculate_targets(profile_dict)
+    return {
+        "target_calories": float(targets.get("daily_calories", 1950.0)),
+        "target_protein": float(targets.get("daily_protein", 105.0)),
+    }
+
+def get_today_status(db: Session, user_id: str) -> Dict[str, Any]:
+    # 1. Fetch targets for the current profile
+    daily_targets = _get_daily_targets(db, user_id)
+    target_calories = daily_targets["target_calories"]
+    target_protein = daily_targets["target_protein"]
 
     # 2. Get local date
     today_date = get_local_today_date()
@@ -147,3 +154,90 @@ def auto_log_ordered_meal(db: Session, user_id: str, session_record: OrderSessio
         except Exception as audit_err:
             log_error(f"Failed to write state-less error audit: {str(audit_err)}", error_category="database_error")
         return None
+
+def add_weight_entry(db: Session, user_id: str, weight_kg: float) -> WeightEntry:
+    """Logs today's weight and keeps UserProfile.weight_kg (used in BMR/target math) current."""
+    today_date = get_local_today_date()
+
+    entry = WeightEntry(user_id=user_id, weight_kg=weight_kg, entry_date=today_date)
+    db.add(entry)
+
+    profile_rec = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    if profile_rec:
+        profile_rec.weight_kg = weight_kg
+
+    db.commit()
+    db.refresh(entry)
+    log_info(f"Logged weight entry: {weight_kg}kg")
+    return entry
+
+def get_weight_history(db: Session, user_id: str, days: int = 30) -> List[WeightEntry]:
+    cutoff = get_local_today_date() - datetime.timedelta(days=days)
+    return db.query(WeightEntry).filter(
+        WeightEntry.user_id == user_id,
+        WeightEntry.entry_date >= cutoff
+    ).order_by(WeightEntry.entry_date.asc()).all()
+
+def get_trends(db: Session, user_id: str, days: int = 7) -> Dict[str, Any]:
+    """
+    Per-day calorie/protein totals for the last `days` days, plus a streak count.
+    A day "hits target" if at least one entry was logged and protein consumed is
+    at least 80% of that day's target — a reasonable "on track" bar, not a strict
+    exact match (macros are rarely hit to the gram).
+    """
+    daily_targets = _get_daily_targets(db, user_id)
+    target_calories = daily_targets["target_calories"]
+    target_protein = daily_targets["target_protein"]
+
+    today_date = get_local_today_date()
+    start_date = today_date - datetime.timedelta(days=days - 1)
+
+    rows = db.query(
+        NutritionEntry.entry_date,
+        func.sum(NutritionEntry.calories).label("calories"),
+        func.sum(NutritionEntry.protein_g).label("protein"),
+    ).filter(
+        NutritionEntry.user_id == user_id,
+        NutritionEntry.entry_date >= start_date,
+        NutritionEntry.entry_date <= today_date,
+    ).group_by(NutritionEntry.entry_date).all()
+
+    by_date = {row.entry_date: row for row in rows}
+
+    day_list = []
+    for offset in range(days):
+        d = start_date + datetime.timedelta(days=offset)
+        row = by_date.get(d)
+        calories = float(row.calories) if row else 0.0
+        protein = float(row.protein) if row else 0.0
+        hit_target = protein >= (target_protein * 0.8) and (row is not None)
+        day_list.append({
+            "date": d,
+            "calories": calories,
+            "protein": protein,
+            "target_calories": target_calories,
+            "target_protein": target_protein,
+            "hit_target": hit_target,
+        })
+
+    # Current streak: consecutive hit-target days ending today (or yesterday, so
+    # a not-yet-logged today doesn't zero out an otherwise-intact streak).
+    current_streak = 0
+    for day in reversed(day_list):
+        if day["date"] == today_date and not day["hit_target"]:
+            continue
+        if day["hit_target"]:
+            current_streak += 1
+        else:
+            break
+
+    best_streak = 0
+    running = 0
+    for day in day_list:
+        if day["hit_target"]:
+            running += 1
+            best_streak = max(best_streak, running)
+        else:
+            running = 0
+
+    return {"days": day_list, "current_streak": current_streak, "best_streak": best_streak}

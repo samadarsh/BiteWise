@@ -4,7 +4,14 @@ from typing import Dict, Any, List
 from backend.db.session import get_db
 from backend.auth.sessions import get_current_user_id
 from backend.auth.rate_limiter import mutating_rate_limiter
-from backend.coach.models import ManualEntrySchema, CoachStatusResponse, NutritionEntrySchema
+from backend.coach.models import (
+    ManualEntrySchema,
+    CoachStatusResponse,
+    NutritionEntrySchema,
+    WeightLogRequest,
+    WeightEntrySchema,
+    TrendsResponse,
+)
 from backend.coach import service
 from backend.db.models import OrderSession, DeliveryAddress
 
@@ -45,6 +52,43 @@ async def get_logged_meals_history(
         return service.get_recent_history(db, user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch history: {str(e)}")
+
+@router.post("/weight", response_model=WeightEntrySchema)
+async def log_weight(
+    payload: WeightLogRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(mutating_rate_limiter)
+):
+    """Logs today's weight and updates the profile's current weight for target math."""
+    try:
+        return service.add_weight_entry(db, user_id, payload.weight_kg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to log weight: {str(e)}")
+
+@router.get("/weight-history", response_model=List[WeightEntrySchema])
+async def get_weight_history(
+    days: int = Query(30, ge=1, le=365),
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """Retrieves weight entries over the last `days` days, oldest first."""
+    try:
+        return service.get_weight_history(db, user_id, days)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch weight history: {str(e)}")
+
+@router.get("/trends", response_model=TrendsResponse)
+async def get_trends(
+    days: int = Query(7, ge=1, le=90),
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """Per-day calorie/protein totals and a target-hit streak over the last `days` days."""
+    try:
+        return service.get_trends(db, user_id, days)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch trends: {str(e)}")
 
 @router.post("/next-meal")
 async def recommend_next_coach_meal(
