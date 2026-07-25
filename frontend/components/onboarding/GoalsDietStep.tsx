@@ -42,8 +42,13 @@ export default function GoalsDietStep({
   onNext,
   onBack,
 }: GoalsDietStepProps) {
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onNext();
+  };
+
   return (
-    <div className="bg-surface border border-border p-8 rounded-2xl shadow-xl w-full flex flex-col gap-5">
+    <form onSubmit={handleSubmit} className="bg-surface border border-border p-8 rounded-2xl shadow-xl w-full flex flex-col gap-5">
       <div className="text-center">
         <h3 className="text-xl font-bold text-text">Goals &amp; Diet</h3>
         <p className="text-xs text-muted mt-1">What you&apos;re working toward, and what you actually eat</p>
@@ -123,13 +128,13 @@ export default function GoalsDietStep({
       </div>
 
       <div className="flex gap-3 mt-2">
-        <button onClick={onBack} className="px-5 py-3 rounded-xl border border-border text-text font-semibold text-sm hover:bg-surface-2 transition">
+        <button type="button" onClick={onBack} className="px-5 py-3 rounded-xl border border-border text-text font-semibold text-sm hover:bg-surface-2 transition">
           Back
         </button>
-        <button onClick={onNext} className="flex-1 bg-nutri hover:brightness-105 text-nutri-contrast font-bold py-3 rounded-xl transition text-sm shadow-md">
+        <button type="submit" className="flex-1 bg-nutri hover:brightness-105 text-nutri-contrast font-bold py-3 rounded-xl transition text-sm shadow-md">
           Continue
         </button>
       </div>
-    </div>
+    </form>
   );
 }

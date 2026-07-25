@@ -32,7 +32,7 @@ export default function ConfirmStep({ age, goal, dietPreference, weights, loadin
       <div className="h-14 w-14 bg-nutri rounded-2xl flex items-center justify-center text-2xl shadow-lg mx-auto">✅</div>
       <div>
         <h3 className="text-xl font-bold text-text">You&apos;re all set</h3>
-        <p className="text-xs text-muted mt-1">Here&apos;s what your Coach will track from here.</p>
+        <p className="text-xs text-muted mt-1">Your Coach starts tracking now — and you can search real meals from nearby restaurants whenever you&apos;re ready.</p>
       </div>
 
       <div className="grid grid-cols-3 gap-3 text-left">
@@ -65,7 +65,7 @@ export default function ConfirmStep({ age, goal, dietPreference, weights, loadin
           disabled={loading}
           className="flex-1 bg-nutri hover:brightness-105 disabled:opacity-50 text-nutri-contrast font-bold py-3.5 rounded-xl transition text-sm shadow-md"
         >
-          {loading ? "Saving…" : "Start Tracking"}
+          {loading ? "Saving…" : "Let's Eat Smart"}
         </button>
       </div>
     </div>

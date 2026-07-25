@@ -8,16 +8,6 @@ import { CoachDashboardRef } from "../components/CoachDashboard";
 import { useAuth } from "./auth-context";
 import { useDashboard } from "./dashboard-context";
 
-// First-run recommendations shouldn't require the user to already know what
-// to type — a goal-appropriate default search fires automatically once an
-// address is selected, so the AI-personalization proof point is visible
-// immediately instead of a blank composer.
-const DEFAULT_QUERY_BY_GOAL: Record<string, string> = {
-  muscle_gain: "high protein meal",
-  fat_loss: "low calorie meal",
-  maintenance: "balanced healthy meal",
-};
-
 interface NutriOrderContextType {
   // Profile
   fitnessGoal: string;
@@ -240,25 +230,6 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
       setSelectedMeal(null);
       setCartPreview(null);
       setCheckoutConfirmed(false);
-
-      // Only auto-search when the composer is still blank — if the user has
-      // already typed something specific, switching address shouldn't stomp it.
-      if (!searchQuery.trim()) {
-        const defaultQuery = DEFAULT_QUERY_BY_GOAL[fitnessGoal] || DEFAULT_QUERY_BY_GOAL.maintenance;
-        setSearchQuery(defaultQuery);
-        setSearchLoading(true);
-        try {
-          const res = await api.searchRecommendations(sess.session_id, defaultQuery, priorityWeights);
-          setSessionStatus(res.status);
-          setRecommendations(mapCandidates(res.results.recommendations || []));
-          setRelaxationOptions(res.results.relaxation_options || []);
-        } catch (searchErr) {
-          // Non-fatal — the composer is still fully usable if the auto-search fails.
-          console.error("Auto-recommendation search failed", searchErr);
-        } finally {
-          setSearchLoading(false);
-        }
-      }
     } catch (err) {
       showAlert(`Failed to start session: ${err instanceof Error ? err.message : String(err)}`, "error");
     }

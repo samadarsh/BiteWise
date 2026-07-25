@@ -74,7 +74,7 @@ const SUB_NAV: Record<string, SubNavItem[]> = {
     },
     {
       href: "/app/nutriorder/order",
-      label: "Order",
+      label: "Find Food",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="11" cy="11" r="7" />
@@ -84,7 +84,7 @@ const SUB_NAV: Record<string, SubNavItem[]> = {
     },
     {
       href: "/app/nutriorder/orders",
-      label: "Orders",
+      label: "History",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="9" />

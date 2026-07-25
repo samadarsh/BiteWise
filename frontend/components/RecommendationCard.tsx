@@ -14,6 +14,7 @@ export default function RecommendationCard({ meal, onSelect, selected, loading }
 
   return (
     <div
+      data-testid="recommendation-card"
       onClick={() => !loading && onSelect(meal)}
       className={`border rounded-2xl p-5 transition text-left cursor-pointer flex flex-col gap-3 relative ${
         selected ? "bg-surface border-nutri shadow-lg" : "bg-surface border-border hover:border-border-strong"

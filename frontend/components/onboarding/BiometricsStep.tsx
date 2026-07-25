@@ -35,8 +35,13 @@ export default function BiometricsStep({
   onNext,
   onBack,
 }: BiometricsStepProps) {
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (canContinue) onNext();
+  };
+
   return (
-    <div className="bg-surface border border-border p-8 rounded-2xl shadow-xl w-full flex flex-col gap-5">
+    <form onSubmit={handleSubmit} className="bg-surface border border-border p-8 rounded-2xl shadow-xl w-full flex flex-col gap-5">
       <div className="text-center">
         <h3 className="text-xl font-bold text-text">Your Biometrics</h3>
         <p className="text-xs text-muted mt-1">We calculate precise daily energy expenditure &amp; meal macro targets</p>
@@ -80,17 +85,17 @@ export default function BiometricsStep({
       </div>
 
       <div className="flex gap-3 mt-2">
-        <button onClick={onBack} className="px-5 py-3 rounded-xl border border-border text-text font-semibold text-sm hover:bg-surface-2 transition">
+        <button type="button" onClick={onBack} className="px-5 py-3 rounded-xl border border-border text-text font-semibold text-sm hover:bg-surface-2 transition">
           Back
         </button>
         <button
-          onClick={onNext}
+          type="submit"
           disabled={!canContinue}
           className="flex-1 bg-nutri hover:brightness-105 disabled:opacity-50 disabled:cursor-not-allowed text-nutri-contrast font-bold py-3 rounded-xl transition text-sm shadow-md"
         >
           Continue
         </button>
       </div>
-    </div>
+    </form>
   );
 }
