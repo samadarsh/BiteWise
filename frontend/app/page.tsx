@@ -439,36 +439,38 @@ export default function LandingPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       {/* NutriOrder AI — Detailed Section                       */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section id="nutriorder" className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-24">
-        <div className="grid gap-12 lg:grid-cols-[1fr_1.1fr] lg:items-start">
-          {/* Left: Description */}
-          <Reveal>
-            <p className="text-xs font-black uppercase tracking-widest text-nutri">Product 01</p>
-            <h2 className="mt-3 text-3xl sm:text-4xl md:text-5xl font-black leading-tight">NutriOrder AI</h2>
-            <p className="mt-2 text-sm font-bold text-nutri">Health-aware meal ordering through Swiggy</p>
-            <p className="mt-5 text-sm sm:text-base leading-7 text-muted">
-              NutriOrder AI is the personal nutrition coach. You set your health profile — calories, protein targets, dietary preference, allergies, and budget — and the system finds the best-fit meals on Swiggy, explains why they rank high, and lets you order with full cart control.
-            </p>
-            <p className="mt-4 text-sm sm:text-base leading-7 text-muted">
-              Every recommendation comes with an explainability breakdown: macro fit percentage, cost score, delivery time, taste profile, and availability. You see the reasoning, not just the result.
-            </p>
-          </Reveal>
+      <section id="nutriorder" className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-20">
+        <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
+          {/* Left: Description & CTAs */}
+          <div className="flex flex-col justify-between">
+            <Reveal>
+              <p className="text-xs font-black uppercase tracking-widest text-nutri">Product 01</p>
+              <h2 className="mt-2 text-3xl sm:text-4xl md:text-5xl font-black leading-tight">NutriOrder AI</h2>
+              <p className="mt-1 text-sm font-bold text-nutri">Health-aware meal ordering through Swiggy</p>
+              <p className="mt-4 text-sm leading-6 text-muted">
+                NutriOrder AI is your personal nutrition coach. Define your calorie target, protein goals, dietary preferences, and allergies — and get ranked Swiggy meal recommendations with complete explainability.
+              </p>
+              <p className="mt-3 text-sm leading-6 text-muted">
+                Every recommendation breaks down macro fit percentage, budget fit, delivery time, and user ratings with safety-gated order caps.
+              </p>
+            </Reveal>
+
+            <Reveal className="mt-6">
+              <Link
+                href="/app/nutriorder"
+                onClick={() => rememberChosenProduct("/app/nutriorder")}
+                className="inline-flex items-center gap-2 rounded-xl bg-nutri px-6 py-3 text-sm font-black text-nutri-contrast shadow-lg transition-all duration-200 hover:brightness-110 hover:-translate-y-0.5"
+              >
+                Try NutriOrder AI <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Reveal>
+          </div>
 
           {/* Right: Live Interactive Showcase */}
           <Reveal delay={0.1}>
             <NutriOrderShowcase />
           </Reveal>
         </div>
-
-        <Reveal className="mt-8">
-          <Link
-            href="/app/nutriorder"
-            onClick={() => rememberChosenProduct("/app/nutriorder")}
-            className="inline-flex items-center gap-2 rounded-xl bg-nutri px-6 py-3 text-sm font-black text-nutri-contrast shadow-lg transition-all duration-200 hover:brightness-110 hover:-translate-y-0.5"
-          >
-            Try NutriOrder AI <ArrowRight className="h-4 w-4" />
-          </Link>
-        </Reveal>
 
         {/* NutriOrder Key Features Grid */}
         <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -492,8 +494,8 @@ export default function LandingPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       {/* SmartPantry AI — Detailed Section                      */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section id="smartpantry" className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-24">
-        <div className="grid gap-12 lg:grid-cols-[1.1fr_1fr] lg:items-start">
+      <section id="smartpantry" className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-20">
+        <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           {/* Left: Live Interactive Showcase */}
           <div className="order-2 lg:order-1">
             <Reveal delay={0.1}>
@@ -501,49 +503,46 @@ export default function LandingPage() {
             </Reveal>
           </div>
 
-          {/* Right: Description */}
-          <div className="order-1 lg:order-2 lg:sticky lg:top-28">
+          {/* Right: Description & Compact Differentiators Grid */}
+          <div className="order-1 lg:order-2 flex flex-col justify-between">
             <Reveal>
               <p className="text-xs font-black uppercase tracking-widest text-pantry">Product 02</p>
-              <h2 className="mt-3 text-3xl sm:text-4xl md:text-5xl font-black leading-tight">SmartPantry AI</h2>
-              <p className="mt-2 text-sm font-bold text-pantry">Household food intelligence for your kitchen</p>
-              <p className="mt-5 text-sm sm:text-base leading-7 text-muted">
-                SmartPantry AI manages the food lifecycle that happens between restaurant orders. It understands your kitchen: what&apos;s in stock, what&apos;s running low, what&apos;s expiring, what you can cook tonight, and what you need to buy.
+              <h2 className="mt-2 text-3xl sm:text-4xl md:text-5xl font-black leading-tight">SmartPantry AI</h2>
+              <p className="mt-1 text-sm font-bold text-pantry">Household food intelligence for your kitchen</p>
+              <p className="mt-4 text-sm leading-6 text-muted">
+                SmartPantry AI manages the food lifecycle between restaurant orders: ingredient stock, expiry alerts, recipe matching, and prioritized grocery lists.
               </p>
-              <p className="mt-4 text-sm sm:text-base leading-7 text-muted">
-                It&apos;s built for households — families where one person is vegetarian, another is allergic to peanuts, and everyone has different calorie needs. SmartPantry filters, plans, and restocks around all of those constraints.
-              </p>
-              <p className="mt-4 text-sm sm:text-base leading-7 text-muted">
-                The intelligence is deterministic and rule-based — no LLM hallucinations, no API-key dependencies. Fast, testable, and reproducible recommendations every time.
+              <p className="mt-3 text-sm leading-6 text-muted">
+                Built for multi-person households where vegetarian preferences, peanut allergies, and calorie goals must all be respected seamlessly.
               </p>
             </Reveal>
 
-            {/* SmartPantry Differentiators */}
-            <div className="mt-8 space-y-3">
+            {/* Compact 2-Column Differentiator Tiles */}
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {SMARTPANTRY_DIFFERENTIATORS.map((d, i) => (
-                <Reveal key={d.label} delay={i * 0.05}>
-                  <div className="flex items-start gap-3 rounded-lg bg-surface-2 border border-pantry/10 p-3.5">
-                    <d.icon className="h-5 w-5 mt-0.5 shrink-0 text-pantry" strokeWidth={2} />
+                <Reveal key={d.label} delay={i * 0.04}>
+                  <div className="flex items-start gap-2.5 rounded-xl bg-surface-2 border border-pantry/15 p-3 hover:border-pantry/30 transition-colors">
+                    <d.icon className="h-4 w-4 mt-0.5 shrink-0 text-pantry" strokeWidth={2} />
                     <div>
-                      <p className="text-sm font-bold text-text">{d.label}</p>
-                      <p className="text-xs text-muted mt-0.5">{d.detail}</p>
+                      <p className="text-xs font-bold text-text leading-snug">{d.label}</p>
+                      <p className="text-[11px] text-muted mt-0.5 leading-tight">{d.detail}</p>
                     </div>
                   </div>
                 </Reveal>
               ))}
             </div>
+
+            <Reveal className="mt-6">
+              <Link
+                href="/app/smartpantry"
+                onClick={() => rememberChosenProduct("/app/smartpantry")}
+                className="inline-flex items-center gap-2 rounded-xl bg-pantry px-6 py-3 text-sm font-black text-pantry-contrast shadow-lg transition-all duration-200 hover:brightness-110 hover:-translate-y-0.5"
+              >
+                Try SmartPantry AI <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Reveal>
           </div>
         </div>
-
-        <Reveal className="mt-8">
-          <Link
-            href="/app/smartpantry"
-            onClick={() => rememberChosenProduct("/app/smartpantry")}
-            className="inline-flex items-center gap-2 rounded-xl bg-pantry px-6 py-3 text-sm font-black text-pantry-contrast shadow-lg transition-all duration-200 hover:brightness-110 hover:-translate-y-0.5"
-          >
-            Try SmartPantry AI <ArrowRight className="h-4 w-4" />
-          </Link>
-        </Reveal>
 
         {/* SmartPantry Key Features Grid */}
         <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
