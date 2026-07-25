@@ -1,6 +1,8 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 import time
+import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from backend.auth.sessions import get_current_user_id
 from backend.auth.rate_limiter import mutating_rate_limiter
 from sqlalchemy.orm import Session
@@ -9,6 +11,54 @@ from backend.db.models import OrderSession
 from backend.orders.state_machine import OrderStatus, validate_state_transition, transition_session_status
 
 router = APIRouter(prefix="/orders", tags=["Order Sessions"])
+
+
+class OrderSessionSummary(BaseModel):
+    session_id: str
+    status: str
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    restaurant_name: Optional[str] = None
+    meal_name: Optional[str] = None
+    total: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/sessions", response_model=List[OrderSessionSummary])
+async def list_order_sessions(
+    limit: int = Query(50, ge=1, le=200),
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> List[OrderSessionSummary]:
+    """
+    Lists the caller's order sessions, most recent first, for the NutriOrder
+    order-history page. Read-only — does not touch session state.
+    """
+    records = (
+        db.query(OrderSession)
+        .filter(OrderSession.user_id == user_id)
+        .order_by(OrderSession.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    summaries: List[OrderSessionSummary] = []
+    for record in records:
+        nutrition = record.selected_item_nutrition or {}
+        summaries.append(
+            OrderSessionSummary(
+                session_id=record.id,
+                status=record.status,
+                created_at=record.created_at,
+                updated_at=record.updated_at,
+                restaurant_name=nutrition.get("restaurant_name"),
+                meal_name=nutrition.get("item_name"),
+                total=record.total,
+            )
+        )
+    return summaries
+
 
 @router.post("/session/start")
 async def start_order_session(
@@ -483,7 +533,6 @@ async def place_order(
 
 
 
-from pydantic import BaseModel, Field
 import uuid
 from backend.db.models import OrderFeedback, UserProfile
 

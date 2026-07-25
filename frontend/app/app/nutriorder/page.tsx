@@ -1,5 +1,5 @@
-import NutriOrderView from "../../../components/nutriorder/NutriOrderView";
+import { redirect } from "next/navigation";
 
 export default function NutriOrderPage() {
-  return <NutriOrderView />;
+  redirect("/app/nutriorder/order");
 }

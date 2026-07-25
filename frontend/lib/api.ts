@@ -89,6 +89,16 @@ export interface OrderSessionResponse {
   status: string;
 }
 
+export interface OrderSessionSummary {
+  session_id: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  restaurant_name: string | null;
+  meal_name: string | null;
+  total: number | null;
+}
+
 export interface RecommendationMeal {
   id: string;
   name: string;
@@ -388,6 +398,13 @@ export const api = {
     return apiFetch<OrderSessionResponse>("/orders/session/start", {
       method: "POST",
     });
+  },
+
+  /**
+   * Lists past order sessions, most recent first, for the order-history page.
+   */
+  async getOrderSessions(): Promise<OrderSessionSummary[]> {
+    return apiFetch<OrderSessionSummary[]>("/orders/sessions");
   },
 
   /**

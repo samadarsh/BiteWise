@@ -64,7 +64,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   const handleEditProfile = () => {
     requestEditProfile();
-    if (pathname !== "/app/nutriorder") router.push("/app/nutriorder");
+    if (!pathname?.startsWith("/app/nutriorder")) router.push("/app/nutriorder/preferences");
   };
 
   return (
