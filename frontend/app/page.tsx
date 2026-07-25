@@ -473,13 +473,15 @@ export default function LandingPage() {
         </div>
 
         {/* NutriOrder Key Features Grid */}
-        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 items-stretch">
           {NUTRIORDER_FEATURES.map((feat, i) => (
-            <Reveal key={feat.title} delay={i * 0.06}>
-              <div className="rounded-xl border border-border-strong bg-surface p-5 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
-                <feat.icon className="h-6 w-6 text-nutri" strokeWidth={2} />
-                <h4 className="mt-3 text-sm font-bold text-text">{feat.title}</h4>
-                <p className="mt-1.5 text-xs leading-5 text-muted">{feat.desc}</p>
+            <Reveal key={feat.title} delay={i * 0.06} className="h-full">
+              <div className="h-full rounded-xl border border-border-strong bg-surface p-5 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 flex flex-col justify-between">
+                <div>
+                  <feat.icon className="h-6 w-6 text-nutri" strokeWidth={2} />
+                  <h4 className="mt-3 text-sm font-bold text-text">{feat.title}</h4>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-muted flex-1">{feat.desc}</p>
               </div>
             </Reveal>
           ))}
@@ -518,10 +520,10 @@ export default function LandingPage() {
             </Reveal>
 
             {/* Compact 2-Column Differentiator Tiles */}
-            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-stretch">
               {SMARTPANTRY_DIFFERENTIATORS.map((d, i) => (
-                <Reveal key={d.label} delay={i * 0.04}>
-                  <div className="flex items-start gap-2.5 rounded-xl bg-surface-2 border border-pantry/15 p-3 hover:border-pantry/30 transition-colors">
+                <Reveal key={d.label} delay={i * 0.04} className="h-full">
+                  <div className="h-full flex items-start gap-2.5 rounded-xl bg-surface-2 border border-pantry/15 p-3 hover:border-pantry/30 transition-colors">
                     <d.icon className="h-4 w-4 mt-0.5 shrink-0 text-pantry" strokeWidth={2} />
                     <div>
                       <p className="text-xs font-bold text-text leading-snug">{d.label}</p>
@@ -545,13 +547,15 @@ export default function LandingPage() {
         </div>
 
         {/* SmartPantry Key Features Grid */}
-        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 items-stretch">
           {SMARTPANTRY_FEATURES.map((feat, i) => (
-            <Reveal key={feat.title} delay={i * 0.05}>
-              <div className="rounded-xl border border-border-strong bg-surface-2 p-5 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
-                <feat.icon className="h-6 w-6 text-pantry" strokeWidth={2} />
-                <h4 className="mt-3 text-sm font-bold text-text">{feat.title}</h4>
-                <p className="mt-1.5 text-xs leading-5 text-muted">{feat.desc}</p>
+            <Reveal key={feat.title} delay={i * 0.05} className="h-full">
+              <div className="h-full rounded-xl border border-border-strong bg-surface-2 p-5 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 flex flex-col justify-between">
+                <div>
+                  <feat.icon className="h-6 w-6 text-pantry" strokeWidth={2} />
+                  <h4 className="mt-3 text-sm font-bold text-text">{feat.title}</h4>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-muted flex-1">{feat.desc}</p>
               </div>
             </Reveal>
           ))}
