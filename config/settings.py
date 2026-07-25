@@ -13,6 +13,7 @@ class Settings:
     database_url: str
     encryption_key: str
     swiggy_mcp_base_url: str
+    swiggy_instamart_mcp_base_url: str
     swiggy_token: str
     swiggy_auth_url: str
     swiggy_token_url: str
@@ -36,6 +37,7 @@ def get_settings() -> Settings:
         database_url=os.getenv("DATABASE_URL", "sqlite:///./nutriorder.db"),
         encryption_key=os.getenv("ENCRYPTION_KEY", ""),
         swiggy_mcp_base_url=os.getenv("SWIGGY_MCP_BASE_URL", "https://mcp-staging.swiggy.com/food"),
+        swiggy_instamart_mcp_base_url=os.getenv("SWIGGY_INSTAMART_MCP_BASE_URL", "https://mcp-staging.swiggy.com/im"),
         swiggy_token=os.getenv("SWIGGY_TOKEN", ""),
         swiggy_auth_url=os.getenv("SWIGGY_AUTH_URL", "https://mcp.swiggy.com/auth/authorize"),
         swiggy_token_url=os.getenv("SWIGGY_TOKEN_URL", "https://mcp.swiggy.com/auth/token"),

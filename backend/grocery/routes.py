@@ -6,12 +6,24 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from backend.db.session import get_db
 from backend.auth.sessions import get_current_user_id
+from backend.auth.rate_limiter import mutating_rate_limiter
 from backend.grocery.models import GroceryList, GroceryListItem, RecipePlan, InstamartCartSession
 from backend.pantry.models import PantryItem
+from backend.pantry.routes import mark_grocery_items_purchased_and_restock
 from backend.household.service import get_or_create_user_household
 from backend.household.intelligence import group_grocery_items
+from backend.mcp.swiggy_instamart_client import ProductionSwiggyInstamartClient
+from mcp.instamart_mock import MockSwiggyInstamartMCP
+from config.settings import get_settings
 
 router = APIRouter(prefix="/grocery-list", tags=["Grocery List Management"])
+
+INSTAMART_MIN_ORDER_RUPEES = 99
+INSTAMART_MAX_ORDER_RUPEES = 1000
+
+# Common English/Hindi synonyms and plurals that don't substring-match the
+# catalog's product names directly (e.g. "curd" -> "Amul Masti Dahi 400g").
+_CATALOG_ALIASES = {"curd": "dahi", "eggs": "egg", "tomatoes": "tomato", "onions": "onion", "lemons": "lemon"}
 
 # Pydantic Schemas
 class GroceryListItemResponse(BaseModel):
@@ -285,25 +297,75 @@ async def match_recipe_ingredients(
     }
 
 
-# Mock product data matching Instamart search results
-MOCK_PRODUCTS = {
-    "milk": {"name": "Nandini Fresh Milk 1L", "price": 46.0},
-    "eggs": {"name": "Eggoz White Eggs 6pcs", "price": 55.0},
-    "egg": {"name": "Eggoz White Eggs 6pcs", "price": 55.0},
-    "rice": {"name": "India Gate Basmati Rice 1kg", "price": 110.0},
-    "chicken": {"name": "Fresh Chicken Breast Boneless 500g", "price": 220.0},
-    "lemon": {"name": "Fresh Lemon 4pcs", "price": 20.0},
-    "lemons": {"name": "Fresh Lemon 4pcs", "price": 20.0},
-    "yogurt": {"name": "Epigamia Greek Yogurt Blueberries 90g", "price": 60.0},
-    "curd": {"name": "Amul Masti Dahi 400g", "price": 35.0},
-    "spinach": {"name": "Fresh Palak (Spinach) 250g", "price": 18.0},
-    "tomato": {"name": "Hybrid Tomato 500g", "price": 25.0},
-    "tomatoes": {"name": "Hybrid Tomato 500g", "price": 25.0},
-    "onion": {"name": "Fresh Onion 1kg", "price": 40.0},
-    "onions": {"name": "Fresh Onion 1kg", "price": 40.0},
-    "bread": {"name": "Britannia Whole Wheat Bread 400g", "price": 50.0},
-    "butter": {"name": "Amul Butter 100g", "price": 58.0},
-}
+def _match_catalog_product(item_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Matches a free-text grocery item name against the same Instamart catalog used
+    for cart/checkout (mcp.instamart_mock.MockSwiggyInstamartMCP), so the price shown
+    in the preview is exactly what checkout charges — one catalog, not two.
+    """
+    clean = item_name.lower().strip()
+    search_terms = {clean, _CATALOG_ALIASES.get(clean, clean)}
+    if clean.endswith("s"):
+        search_terms.add(clean[:-1])
+
+    # Catalog is static per-instance data, not user state — any instance works as a lookup.
+    catalog = MockSwiggyInstamartMCP(user_id="_catalog_lookup")._catalog
+    for prod in catalog:
+        prod_name_lower = prod["name"].lower()
+        if any(term and term in prod_name_lower for term in search_terms):
+            return prod
+    return None
+
+
+def _build_cart_lines(db: Session, household_id: str) -> Dict[str, Any]:
+    """
+    Shared by the preview and checkout endpoints so what the user previews is
+    exactly what gets ordered — same matching, same totals.
+    """
+    active_list = get_or_create_active_list(db, household_id)
+    unpurchased_items = db.query(GroceryListItem).filter(
+        GroceryListItem.grocery_list_id == active_list.id,
+        GroceryListItem.is_purchased == False
+    ).all()
+
+    preview_items: List[CartPreviewItem] = []
+    cart_items_for_mcp: List[Dict[str, Any]] = []
+    total_cost = 0.0
+
+    for item in unpurchased_items:
+        matched = _match_catalog_product(item.item_name)
+
+        if matched:
+            matched_name = matched["name"]
+            price = matched["price"]
+            status = "IN_STOCK"
+            spin_id = matched["spinId"]
+        else:
+            matched_name = f"Standard {item.item_name} Pack"
+            price = 50.0  # default estimated price
+            status = "SIMULATED"
+            spin_id = f"generic_{item.id}"
+
+        item_total = price * item.quantity
+        total_cost += item_total
+
+        preview_items.append(CartPreviewItem(
+            item_name=item.item_name,
+            quantity=item.quantity,
+            unit=item.unit,
+            matched_product_name=matched_name,
+            price_in_rupees=item_total,
+            stock_status=status
+        ))
+        cart_items_for_mcp.append({"spinId": spin_id, "quantity": int(item.quantity) or 1})
+
+    return {
+        "preview_items": preview_items,
+        "cart_items_for_mcp": cart_items_for_mcp,
+        "grocery_items": unpurchased_items,
+        "total_cost": round(total_cost, 2),
+    }
+
 
 @router.post("/cart-preview", response_model=CartPreviewResponse)
 async def generate_cart_preview(
@@ -314,53 +376,91 @@ async def generate_cart_preview(
     Builds a simulated Instamart cart preview based on unpurchased grocery list items.
     """
     household = get_or_create_user_household(db, user_id)
-    active_list = get_or_create_active_list(db, household.id)
-    
-    unpurchased_items = db.query(GroceryListItem).filter(
-        GroceryListItem.grocery_list_id == active_list.id,
-        GroceryListItem.is_purchased == False
-    ).all()
-    
-    preview_items = []
-    total_cost = 0.0
-    
-    for item in unpurchased_items:
-        clean_name = item.item_name.lower().strip()
-        
-        # Try to find a matching product
-        matched = None
-        for key, prod in MOCK_PRODUCTS.items():
-            if key in clean_name or clean_name in key:
-                matched = prod
-                break
-                
-        if matched:
-            matched_name = matched["name"]
-            price = matched["price"]
-            status = "IN_STOCK"
-        else:
-            # Fallback mock item
-            matched_name = f"Standard {item.item_name} Pack"
-            price = 50.0 # default estimated price
-            status = "SIMULATED"
-            
-        item_total = price * item.quantity
-        total_cost += item_total
-        
-        preview_items.append(CartPreviewItem(
-            item_name=item.item_name,
-            quantity=item.quantity,
-            unit=item.unit,
-            matched_product_name=matched_name,
-            price_in_rupees=item_total,
-            stock_status=status
-        ))
-        
+    lines = _build_cart_lines(db, household.id)
+
     return CartPreviewResponse(
-        items=preview_items,
-        total_items_count=len(preview_items),
-        total_estimated_cost_rupees=total_cost
+        items=lines["preview_items"],
+        total_items_count=len(lines["preview_items"]),
+        total_estimated_cost_rupees=lines["total_cost"]
     )
+
+
+class InstamartCheckoutRequest(BaseModel):
+    address_id: str = Field(..., min_length=1)
+    payment_method: str = Field("COD", min_length=1)
+
+
+@router.post("/checkout")
+async def checkout_instamart_cart(
+    req: InstamartCheckoutRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(mutating_rate_limiter)
+):
+    """
+    Places a real Instamart order for the household's grocery list, mirroring
+    NutriOrder's Food checkout flow: build cart -> confirm -> place -> mark purchased.
+    Gated the same way as Food (SWIGGY_ENV=staging + ALLOW_PLACE_ORDER=true outside
+    mock mode) and capped at Rs 1000 per the Swiggy Builders Club rules.
+    """
+    household = get_or_create_user_household(db, user_id)
+    lines = _build_cart_lines(db, household.id)
+
+    if not lines["cart_items_for_mcp"]:
+        raise HTTPException(status_code=400, detail="Your grocery list is empty.")
+
+    total = lines["total_cost"]
+    if total < INSTAMART_MIN_ORDER_RUPEES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Instamart orders need a minimum of Rs {INSTAMART_MIN_ORDER_RUPEES} (current: Rs {total})."
+        )
+    if total >= INSTAMART_MAX_ORDER_RUPEES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Checkout blocked: Cart total of Rs {total} exceeds the Swiggy Builders Club cap of Rs {INSTAMART_MAX_ORDER_RUPEES}."
+        )
+
+    settings = get_settings()
+    is_mock = settings.use_mock_mcp or settings.app_env == "development"
+    if not is_mock and (settings.swiggy_env != "staging" or not settings.allow_place_order):
+        raise HTTPException(
+            status_code=403,
+            detail="Safety Lock: Instamart checkout is disabled unless SWIGGY_ENV=staging and ALLOW_PLACE_ORDER=true."
+        )
+
+    session_id = f"instamart_{secrets.token_hex(6)}"
+    session_record = InstamartCartSession(id=session_id, user_id=user_id, household_id=household.id, status="START")
+    db.add(session_record)
+    db.commit()
+
+    try:
+        client = ProductionSwiggyInstamartClient(user_id=user_id)
+        client.update_cart(addressId=req.address_id, items=lines["cart_items_for_mcp"])
+        order_res = client.checkout(addressId=req.address_id, paymentMethod=req.payment_method)
+
+        session_record.status = "PLACED"
+        session_record.swiggy_cart_meta = order_res
+        db.commit()
+
+        restock_result = mark_grocery_items_purchased_and_restock(
+            db, household.id, [gi.id for gi in lines["grocery_items"]]
+        )
+
+        return {
+            "success": True,
+            "order_id": order_res.get("orderId", session_id),
+            "status": "PLACED",
+            "total": total,
+            "items_ordered": len(lines["cart_items_for_mcp"]),
+            "restocked_to_full": restock_result["restocked_to_full"],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        session_record.status = "FAILED"
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Instamart checkout failed: {str(e)}")
 
 
 @router.get("/grouped")

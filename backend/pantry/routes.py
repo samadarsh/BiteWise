@@ -1,6 +1,6 @@
 import secrets
 import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -357,26 +357,22 @@ async def get_expiring_items(
 
 # ── Mark Purchased & Restock ────────────────────────
 
-@router.post("/mark-purchased")
-async def mark_purchased_and_restock(
-    req: MarkPurchasedRequest,
-    user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db)
-):
+def mark_grocery_items_purchased_and_restock(db: Session, household_id: str, item_ids: List[str]) -> Dict[str, Any]:
     """
     Marks grocery items as purchased and restocks matching pantry items to FULL.
     Resets added_at and clears/recomputes expiry_date for perishables.
+    Shared by the manual "mark purchased" checkbox and the Instamart checkout flow
+    so both close the loop back into pantry state identically.
     """
     from backend.grocery.models import GroceryListItem
 
-    household = get_or_create_user_household(db, user_id)
-    pantry_items = db.query(PantryItem).filter(PantryItem.household_id == household.id).all()
+    pantry_items = db.query(PantryItem).filter(PantryItem.household_id == household_id).all()
     pantry_map = {pi.item_name.lower().strip(): pi for pi in pantry_items}
 
     marked = []
     restocked = []
 
-    for item_id in req.item_ids:
+    for item_id in item_ids:
         grocery_item = db.query(GroceryListItem).filter(
             GroceryListItem.id == item_id
         ).first()
@@ -407,3 +403,16 @@ async def mark_purchased_and_restock(
         "total_marked": len(marked),
         "total_restocked": len(restocked),
     }
+
+
+@router.post("/mark-purchased")
+async def mark_purchased_and_restock(
+    req: MarkPurchasedRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Marks grocery items as purchased and restocks matching pantry items to FULL.
+    """
+    household = get_or_create_user_household(db, user_id)
+    return mark_grocery_items_purchased_and_restock(db, household.id, req.item_ids)

@@ -317,6 +317,15 @@ export interface CartPreview {
   total_estimated_cost_rupees: number;
 }
 
+export interface InstamartCheckoutResponse {
+  success: boolean;
+  order_id: string;
+  status: string;
+  total: number;
+  items_ordered: number;
+  restocked_to_full: string[];
+}
+
 // API Endpoints
 export const api = {
   /**
@@ -732,6 +741,16 @@ export const api = {
   async getCartPreview(): Promise<CartPreview> {
     return apiFetch<CartPreview>("/grocery-list/cart-preview", {
       method: "POST"
+    });
+  },
+
+  /**
+   * Places a real Instamart order for the household's unpurchased grocery items.
+   */
+  async checkoutInstamartCart(payload: { address_id: string; payment_method?: string }): Promise<InstamartCheckoutResponse> {
+    return apiFetch<InstamartCheckoutResponse>("/grocery-list/checkout", {
+      method: "POST",
+      body: JSON.stringify(payload),
     });
   },
 

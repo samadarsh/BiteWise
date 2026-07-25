@@ -20,11 +20,15 @@ class SwiggyAuthError(SwiggyMCPError):
     pass
 
 
-class SwiggyFoodMCPClient:
-    def __init__(self, base_url: Optional[str] = None, token: Optional[str] = None) -> None:
-        settings = get_settings()
-        self.base_url = base_url or settings.swiggy_mcp_base_url
-        self.token = token or settings.swiggy_token
+class _SwiggyMCPTransport:
+    """
+    Shared JSON-RPC 2.0 tools/call transport for Swiggy MCP servers (Food, Instamart, ...).
+    Each product line's tools live behind their own base_url but speak the identical
+    protocol, so this holds everything that isn't tool-name-specific.
+    """
+    def __init__(self, base_url: str, token: Optional[str] = None) -> None:
+        self.base_url = base_url
+        self.token = token or get_settings().swiggy_token
 
     def _summarize_arguments(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Log only non-sensitive argument shape, not raw IDs, queries, or coupon codes."""
@@ -284,6 +288,12 @@ class SwiggyFoodMCPClient:
 
         raise SwiggyMCPError(err_msg)
 
+
+class SwiggyFoodMCPClient(_SwiggyMCPTransport):
+    def __init__(self, base_url: Optional[str] = None, token: Optional[str] = None) -> None:
+        settings = get_settings()
+        super().__init__(base_url=base_url or settings.swiggy_mcp_base_url, token=token)
+
     # Standard aligned Food tools:
     def get_addresses(self) -> List[Dict[str, Any]]:
         res = self.call_tool("get_addresses", {})
@@ -377,4 +387,61 @@ class SwiggyFoodMCPClient:
     def flush_food_cart(self) -> Dict[str, Any]:
         """Clears the staging cart. Swiggy flush_food_cart takes no tool arguments."""
         res = self.call_tool("flush_food_cart", {})
+        return self._unpack_and_normalize(res)
+
+
+class SwiggyInstamartMCPClient(_SwiggyMCPTransport):
+    """
+    Real Swiggy Instamart MCP client. Tool names/params/safety notes verified against
+    https://mcp.swiggy.com/builders/docs/reference/instamart/*.md — see CLAUDE.md.
+    """
+    def __init__(self, base_url: Optional[str] = None, token: Optional[str] = None) -> None:
+        settings = get_settings()
+        super().__init__(base_url=base_url or settings.swiggy_instamart_mcp_base_url, token=token)
+
+    def search_products(self, addressId: str, query: str, offset: Optional[int] = None) -> List[Dict[str, Any]]:
+        args = {"addressId": addressId, "query": query}
+        if offset is not None:
+            args["offset"] = offset
+        res = self.call_tool("search_products", args)
+        return self._unpack_and_normalize(res)
+
+    def update_cart(self, selectedAddressId: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Replaces the entire Instamart cart with the given [{spinId, quantity}, ...] items."""
+        args = {"selectedAddressId": selectedAddressId, "items": items}
+        res = self.call_tool("update_cart", args)
+        return self._unpack_and_normalize(res)
+
+    def get_cart(self) -> Dict[str, Any]:
+        res = self.call_tool("get_cart", {})
+        return self._unpack_and_normalize(res)
+
+    def checkout(self, addressId: str, paymentMethod: Optional[str] = "COD") -> Dict[str, Any]:
+        # Same dual-flag safety lock as Food's place_food_order — staging mode alone,
+        # or the allow flag alone, must never be sufficient to place a real order.
+        settings = get_settings()
+        if settings.swiggy_env != "staging" or not settings.allow_place_order:
+            raise SwiggyMCPError(
+                "Safety Lock: checkout is disabled unless SWIGGY_ENV=staging "
+                "and ALLOW_PLACE_ORDER=true."
+            )
+
+        args = {"addressId": addressId, "paymentMethod": paymentMethod}
+        res = self.call_tool("checkout", args)
+        return self._unpack_and_normalize(res)
+
+    def get_orders(self, count: Optional[int] = None, orderType: Optional[str] = "INSTAMART", activeOnly: Optional[bool] = None) -> Dict[str, Any]:
+        args: Dict[str, Any] = {}
+        if count is not None:
+            args["count"] = count
+        if orderType is not None:
+            args["orderType"] = orderType
+        if activeOnly is not None:
+            args["activeOnly"] = activeOnly
+        res = self.call_tool("get_orders", args)
+        return self._unpack_and_normalize(res)
+
+    def track_order(self, orderId: str, lat: float, lng: float) -> Dict[str, Any]:
+        args = {"orderId": orderId, "lat": lat, "lng": lng}
+        res = self.call_tool("track_order", args)
         return self._unpack_and_normalize(res)
