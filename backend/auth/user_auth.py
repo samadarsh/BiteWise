@@ -1,5 +1,6 @@
 import secrets
 import requests
+import datetime
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Response, Request
@@ -7,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
 from backend.db.models import User, UserProfile, SwiggyToken
-from backend.auth.sessions import clear_session_cookies, get_current_user_id, set_session_cookies, sign_session
+from backend.auth.sessions import clear_session_cookies, decrypt_token, get_current_user_id, set_session_cookies, sign_session
+from backend.auth.rate_limiter import mutating_rate_limiter
 from config.settings import get_settings
 
 router = APIRouter(prefix="/auth", tags=["App Authentication"])
@@ -15,9 +17,21 @@ router = APIRouter(prefix="/auth", tags=["App Authentication"])
 
 class GoogleLoginRequest(BaseModel):
     id_token: Optional[str] = None
+    access_token: Optional[str] = None
     email: Optional[str] = None
     name: Optional[str] = None
     avatar_url: Optional[str] = None
+
+
+def _is_swiggy_token_valid(token_record: Optional[SwiggyToken]) -> bool:
+    """A token record existing isn't enough — an expired token shouldn't show
+    as 'connected' just because nothing has cleaned up the row yet."""
+    return bool(
+        token_record
+        and token_record.encrypted_access_token
+        and token_record.expires_at
+        and token_record.expires_at > datetime.datetime.now()
+    )
 
 
 @router.get("/me")
@@ -39,7 +53,8 @@ async def get_my_profile(
         return {"authenticated": False, "user": None}
 
     token_record = db.query(SwiggyToken).filter(SwiggyToken.user_id == user_id).first()
-    swiggy_connected = bool(token_record and token_record.encrypted_access_token)
+    swiggy_connected = _is_swiggy_token_valid(token_record)
+    settings = get_settings()
 
     profile_data = None
     if user.profile:
@@ -69,6 +84,7 @@ async def get_my_profile(
             "avatar_url": user.avatar_url,
             "auth_provider": user.auth_provider,
             "swiggy_connected": swiggy_connected,
+            "mcp_mode": "mock" if settings.use_mock_mcp else "live",
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "profile": profile_data
         }
@@ -78,7 +94,8 @@ async def get_my_profile(
 @router.post("/guest")
 async def create_guest_session(
     response: Response,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(mutating_rate_limiter)
 ) -> Dict[str, Any]:
     """
     Creates a guest session and sets HTTPOnly cookies.
@@ -120,21 +137,30 @@ async def create_guest_session(
 async def login_with_google(
     payload: GoogleLoginRequest,
     response: Response,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(mutating_rate_limiter)
 ) -> Dict[str, Any]:
     """
     Authenticates or registers an App User by verifying a Google id_token server-side.
     """
     settings = get_settings()
-    is_local = settings.use_mock_mcp or settings.app_env == "development"
 
     email = None
     name = payload.name
     avatar_url = payload.avatar_url
 
     if payload.id_token:
-        if payload.id_token.startswith("mock_") or not settings.google_client_id:
-            # Developer mock token bypass or fallback when GOOGLE_CLIENT_ID is not configured
+        if settings.use_mock_mcp and payload.id_token.startswith("mock_"):
+            # Mock-mode-only bypass — strictly USE_MOCK_MCP, never APP_ENV
+            # (the same conflation bug fixed elsewhere this session: on any
+            # local dev machine APP_ENV=development by default, which would
+            # otherwise let this fire even with USE_MOCK_MCP=false and let
+            # anyone log in as a fake account with zero verification).
+            email = payload.email or "mockgoogleuser@gmail.com"
+            name = name or "Mock Google User"
+        elif not settings.google_client_id:
+            if not settings.use_mock_mcp:
+                raise HTTPException(status_code=500, detail="Google sign-in is not configured on this server (GOOGLE_CLIENT_ID missing).")
             email = payload.email or "mockgoogleuser@gmail.com"
             name = name or "Mock Google User"
         else:
@@ -163,8 +189,42 @@ async def login_with_google(
                 avatar_url = token_data.get("picture") or avatar_url
             except requests.exceptions.RequestException as e:
                 raise HTTPException(status_code=502, detail=f"Failed to reach Google OAuth server: {str(e)}")
-    elif is_local and payload.email:
-        # Dev fallback when id_token is omitted
+    elif payload.access_token:
+        # Popup-based OAuth2 implicit flow (google.accounts.oauth2.initTokenClient)
+        # yields an access_token, not an id_token — verify it against Google's
+        # userinfo endpoint instead of tokeninfo.
+        if settings.use_mock_mcp and payload.access_token.startswith("mock_"):
+            email = payload.email or "mockgoogleuser@gmail.com"
+            name = name or "Mock Google User"
+        elif not settings.google_client_id:
+            if not settings.use_mock_mcp:
+                raise HTTPException(status_code=500, detail="Google sign-in is not configured on this server (GOOGLE_CLIENT_ID missing).")
+            email = payload.email or "mockgoogleuser@gmail.com"
+            name = name or "Mock Google User"
+        else:
+            try:
+                verify_res = requests.get(
+                    "https://www.googleapis.com/oauth2/v3/userinfo",
+                    headers={"Authorization": f"Bearer {payload.access_token}"},
+                    timeout=10
+                )
+                if verify_res.status_code != 200:
+                    raise HTTPException(status_code=401, detail="Google token verification failed.")
+
+                userinfo = verify_res.json()
+                if str(userinfo.get("email_verified", "")).lower() != "true":
+                    raise HTTPException(status_code=401, detail="Google account email is not verified.")
+
+                email = userinfo.get("email")
+                if not email:
+                    raise HTTPException(status_code=401, detail="Google token payload missing email.")
+
+                name = userinfo.get("name") or userinfo.get("given_name") or name
+                avatar_url = userinfo.get("picture") or avatar_url
+            except requests.exceptions.RequestException as e:
+                raise HTTPException(status_code=502, detail=f"Failed to reach Google OAuth server: {str(e)}")
+    elif settings.use_mock_mcp and payload.email:
+        # Mock-mode-only fallback when id_token is omitted entirely
         email = payload.email
     else:
         raise HTTPException(status_code=400, detail="Google id_token is required for authentication.")
@@ -211,7 +271,7 @@ async def login_with_google(
     set_session_cookies(response, user.id)
 
     token_record = db.query(SwiggyToken).filter(SwiggyToken.user_id == user.id).first()
-    swiggy_connected = bool(token_record and token_record.encrypted_access_token)
+    swiggy_connected = _is_swiggy_token_valid(token_record)
 
     return {
         "success": True,
@@ -228,9 +288,39 @@ async def login_with_google(
 
 
 @router.post("/logout")
-async def logout(response: Response) -> Dict[str, Any]:
+async def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
-    Clears current BiteWise session cookies.
+    Revokes the user's Swiggy-side session (best-effort, real mode only) and
+    always deletes the local token, then clears BiteWise's own session
+    cookies. Previously this only did the cookie clear, so the Swiggy access
+    token stayed valid at Swiggy's end for its full 5-day lifetime even after
+    a BiteWise logout.
     """
+    settings = get_settings()
+    try:
+        user_id = await get_current_user_id(request, strict=False)
+    except Exception:
+        user_id = None
+
+    if user_id:
+        token_record = db.query(SwiggyToken).filter(SwiggyToken.user_id == user_id).first()
+        if token_record:
+            if not settings.use_mock_mcp:
+                # Best-effort: Swiggy's docs only document that this endpoint
+                # exists ("POST /auth/logout — revoke the current session"),
+                # no request/response shape beyond Bearer auth is published,
+                # so this must never block BiteWise's own logout on failure.
+                try:
+                    token = decrypt_token(token_record.encrypted_access_token)
+                    requests.post(
+                        settings.swiggy_logout_url,
+                        headers={"Authorization": f"Bearer {token}"},
+                        timeout=10,
+                    )
+                except Exception:
+                    pass
+            db.delete(token_record)
+            db.commit()
+
     clear_session_cookies(response)
     return {"success": True, "message": "Logged out successfully."}

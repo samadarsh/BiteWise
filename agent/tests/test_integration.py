@@ -513,6 +513,12 @@ def test_production_checkout_validation_rules():
 
     original_key = os.environ.get("ENCRYPTION_KEY")
     os.environ["ENCRYPTION_KEY"] = secrets.token_hex(32)
+    # is_mock=True makes place_order's safety-lock check a no-op (skipped
+    # entirely, matching how a real mock-mode deployment behaves) so this
+    # test can exercise its own MockSwiggyCheckoutClient downstream of it —
+    # without this, a real .env with USE_MOCK_MCP=false hits the safety
+    # lock's 403 before ever reaching the validation logic under test.
+    os.environ["USE_MOCK_MCP"] = "true"
 
     db = SessionLocal()
     try:
@@ -588,8 +594,11 @@ def test_production_checkout_validation_rules():
 
             db.refresh(sess)
             assert sess.status == OrderStatus.ORDER_PLACED.value
-            assert sess.payment_method == "COD"
-            assert mock_client.payment_method == "COD"
+            # Swiggy's place_food_order only documents "UPI"/"Cash" for
+            # paymentMethod — "COD" (the cart's own label for
+            # pay-on-delivery) must be translated before the real call.
+            assert sess.payment_method == "Cash"
+            assert mock_client.payment_method == "Cash"
         finally:
             ProductionSwiggyClient._get_initialized_client = original_init
 
@@ -684,6 +693,10 @@ def test_complete_journey_routes():
 
     original_key = os.environ.get("ENCRYPTION_KEY")
     os.environ["ENCRYPTION_KEY"] = secrets.token_hex(32)
+    # is_mock=True makes place_order's safety-lock check a no-op, matching a
+    # real mock-mode deployment, so this test can exercise the rest of the
+    # flow via its own MockSwiggyCheckoutClient.
+    os.environ["USE_MOCK_MCP"] = "true"
 
     db = SessionLocal()
     try:
@@ -922,11 +935,13 @@ def test_sprint3_auth_status_endpoint():
 
 def test_sprint4_coupons_schema_and_cod_filter():
     """Verify coupon retrieval and application endpoints, ensuring COD filter works."""
+    import os
     from fastapi.testclient import TestClient
     from backend.main import app
     from backend.db.session import SessionLocal
     from backend.db.models import OrderSession
 
+    os.environ["USE_MOCK_MCP"] = "true"  # /auth/demo-login is mock-mode only
     db = SessionLocal()
     try:
         with TestClient(app) as client:
@@ -976,9 +991,11 @@ def test_sprint4_coupons_schema_and_cod_filter():
 
 def test_food_cart_restaurant_switch_requires_confirmation():
     """Verify a restaurant-bound Food cart cannot be replaced without user confirmation."""
+    import os
     from fastapi.testclient import TestClient
     from backend.main import app
 
+    os.environ["USE_MOCK_MCP"] = "true"  # /auth/demo-login is mock-mode only
     with TestClient(app) as client:
         login = client.post("/auth/demo-login")
         assert login.status_code == 200

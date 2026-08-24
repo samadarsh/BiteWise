@@ -1,14 +1,29 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import uvicorn
 import uuid
 import time
 from config.settings import get_settings
 from agent.observability import log_info
+from mcp.mcp_client import SwiggyMCPError, SwiggyAuthError
 
 # Import database session, engine and trigger models registration
 from backend.db.session import engine, Base
 import backend.db.models  # Registers SQLite/PostgreSQL models
+
+# Error tracking — a no-op unless SENTRY_DSN is set (unset in local dev and
+# CI); previously nothing here meant unhandled exceptions only ever existed
+# in raw stdout logs, with nobody alerted in production.
+_early_settings = get_settings()
+if _early_settings.sentry_dsn:
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=_early_settings.sentry_dsn,
+        environment=_early_settings.app_env,
+        send_default_pii=False,
+    )
 
 # Import routers
 from backend.auth import swiggy_oauth, user_auth
@@ -59,7 +74,8 @@ def init_db():
                 ("activity_level", "VARCHAR DEFAULT 'moderate'"),
                 ("meal_budget_default", "INTEGER DEFAULT 300"),
                 ("preferred_meal_times", "JSON DEFAULT '{}'"),
-                ("spice_tolerance", "VARCHAR DEFAULT 'medium'")
+                ("spice_tolerance", "VARCHAR DEFAULT 'medium'"),
+                ("priority_weights", "JSON DEFAULT '{}'")
             ]
             with engine.begin() as conn:
                 for col_name, col_type in new_columns:
@@ -72,6 +88,8 @@ def init_db():
             with engine.begin() as conn:
                 if "selected_item_nutrition" not in sess_columns:
                     conn.execute(text("ALTER TABLE order_sessions ADD COLUMN selected_item_nutrition JSON"))
+                if "mcp_mode" not in sess_columns:
+                    conn.execute(text("ALTER TABLE order_sessions ADD COLUMN mcp_mode VARCHAR"))
 
         # Idempotent column check for pantry_items (runs independently of user_profiles)
         if inspector.has_table("pantry_items"):
@@ -89,6 +107,21 @@ def init_db():
                     conn.execute(text("ALTER TABLE pantry_items ADD COLUMN is_bulk BOOLEAN DEFAULT 0"))
                 if "bulk_use_count" not in pantry_columns:
                     conn.execute(text("ALTER TABLE pantry_items ADD COLUMN bulk_use_count INTEGER DEFAULT 0"))
+
+# Security headers — CSP is deliberately not set here: this API also serves
+# FastAPI's own /docs and /redoc pages, which load their assets from a CDN,
+# so a strict default-src would break them without path-specific tuning.
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # Browsers ignore this over plain HTTP, so it's harmless in local dev
+    # and takes effect automatically once served over real HTTPS.
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
 
 # Request ID and logging middleware
 @app.middleware("http")
@@ -122,6 +155,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(SwiggyMCPError)
+async def swiggy_mcp_error_handler(request: Request, exc: SwiggyMCPError) -> JSONResponse:
+    """
+    Backstop for any Swiggy MCP call-site that lets the real exception type
+    survive (rather than flattening it into a generic 500) — one consistent
+    contract for the frontend: 401 + swiggy_reauth_required when the user's
+    Swiggy token is expired/invalid, 502 for any other MCP-layer failure.
+    """
+    if isinstance(exc, SwiggyAuthError):
+        # A dead token (revoked on Swiggy's side, e.g. the user logged out of
+        # Swiggy directly) only surfaces here — the first time it's actually
+        # used. Purge the local row now so swiggy_connected correctly flips
+        # to False on the very next /auth/me check instead of staying stale
+        # until the token's natural expires_at.
+        try:
+            from backend.auth.sessions import get_current_user_id
+            from backend.db.session import SessionLocal
+            from backend.db.models import SwiggyToken
+
+            user_id = await get_current_user_id(request, strict=False)
+            if user_id:
+                db = SessionLocal()
+                try:
+                    db.query(SwiggyToken).filter(SwiggyToken.user_id == user_id).delete()
+                    db.commit()
+                finally:
+                    db.close()
+        except Exception:
+            pass
+        return JSONResponse(status_code=401, content={"error_code": "swiggy_reauth_required", "detail": exc.message})
+    return JSONResponse(status_code=exc.status_code or 502, content={"error_code": "swiggy_mcp_error", "detail": exc.message})
 
 # Include modules
 app.include_router(user_auth.router)

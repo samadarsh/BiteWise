@@ -30,7 +30,7 @@ function Spinner({ className = "" }: { className?: string }) {
 }
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, openAuthModal, loginAsGuest } = useAuth();
+  const { isAuthenticated, isLoading, openAuthModal, loginAsGuest, user } = useAuth();
   const { alert, clearAlert, showAlert, refreshData, requestEditProfile } = useDashboard();
   const pathname = usePathname();
   const router = useRouter();
@@ -133,7 +133,11 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         <div className="flex-1 w-full max-w-[95rem] mx-auto flex items-start">
           <Sidebar />
           <div className="flex-1 min-w-0 px-3 sm:px-4 lg:px-8 py-4 sm:py-8 flex flex-col gap-4 sm:gap-6">
-            <DemoControlBar onSeed={handleSeed} onReset={handleReset} loading={demoLoading} />
+            {/* Demo seed/reset only makes sense in mock mode — in live mode
+                it would mix fabricated demo data into a real Swiggy account. */}
+            {user?.mcp_mode !== "live" && (
+              <DemoControlBar onSeed={handleSeed} onReset={handleReset} loading={demoLoading} />
+            )}
 
             {alert && <AlertBanner message={alert.message} type={alert.type} onClose={clearAlert} />}
 

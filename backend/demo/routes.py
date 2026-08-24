@@ -19,9 +19,14 @@ from backend.pantry.templates import get_category_default_expiry_days
 router = APIRouter(prefix="/demo", tags=["Demo Management"])
 
 def enforce_demo_only():
+    # Strictly use_mock_mcp — same fix as _is_mock_mode() in swiggy_oauth.py.
+    # APP_ENV=development is the default on any local dev machine, so folding
+    # it in here meant demo seed/reset stayed enabled even while testing a
+    # real Swiggy connection, letting fabricated demo data mix with real
+    # account data instead of staying strictly separated.
     settings = get_settings()
-    if not (settings.use_mock_mcp or settings.app_env == "development"):
-        raise HTTPException(status_code=403, detail="Demo endpoints are disabled in staging/production mode.")
+    if not settings.use_mock_mcp:
+        raise HTTPException(status_code=403, detail="Demo endpoints are only available in mock mode.")
 
 def safe_delete_user_household(db: Session, user_id: str):
     """Deletes only the current user's household graph in a non-invasive, FK-safe manner."""

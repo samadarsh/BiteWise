@@ -196,3 +196,31 @@ def test_pipeline_relaxation_patch_overrides_computed_targets():
 
     assert profile["target_protein"] == 22
     assert profile["target_calories"] == 720
+
+
+def test_convert_mcp_items_coerces_string_rating_without_crashing():
+    """Regression: real search_menu items send "rating" as a string
+    (confirmed live: {"rating": "4.8"}), and RestaurantRatingFactor divides
+    it by 5.0 — an uncoerced string crashed the whole pipeline with
+    "unsupported operand type(s) for /: 'str' and 'float'", silently
+    swallowed and misreported to the user as "no strict matches"."""
+    from agent.pipeline import NutriOrderPipeline
+    from agent.ranking import RankingEngine
+
+    pipeline = NutriOrderPipeline(mcp_client=None, memory_manager=None, personalization_engine=None)
+    real_items = [
+        {"name": "BBQ Grilled Chicken Wings", "price": 269, "menu_item_id": "m1", "restaurant_id": "r1", "restaurant_name": "WeFit", "rating": "4.8"},
+        {"name": "Herb Grilled Chicken Wings", "price": 269, "menu_item_id": "m2", "restaurant_id": "r1", "restaurant_name": "WeFit"},
+    ]
+    candidates = pipeline._convert_mcp_items(real_items)
+    # First item has a real (string) rating -> coerced to float, never crashes.
+    # Second item has no rating at all -> honestly None, not a fabricated default.
+    assert isinstance(candidates[0]["rating"], float)
+    assert candidates[1]["rating"] is None
+
+    profile = {
+        "target_protein": 35, "target_calories": 650, "dietary_preference": "any",
+        "typical_budget": 300, "allergies": [], "dislikes": [], "fitness_goal": "maintenance",
+    }
+    ranked = RankingEngine().rank_meals(candidates, profile)
+    assert len(ranked) == 2

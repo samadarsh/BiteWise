@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, Cookie, 
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from backend.db.session import get_db
-from backend.db.models import User, SwiggyToken, UserProfile
+from backend.db.models import User, SwiggyToken, UserProfile, SwiggyClientRegistration
 from backend.auth.sessions import encrypt_token, get_current_user_id, set_session_cookies, should_use_secure_cookies, sign_session
+from backend.auth.rate_limiter import mutating_rate_limiter
 from config.settings import get_settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -20,20 +21,93 @@ def generate_pkce_pair():
     challenge = base64.urlsafe_b64encode(sha256).decode('utf-8').replace('=', '')
     return verifier, challenge
 
-def _is_mock_or_dev() -> bool:
+def _is_mock_mode() -> bool:
+    """
+    Strictly USE_MOCK_MCP — never APP_ENV. Real-mode OAuth testing normally
+    happens from a local dev machine (APP_ENV=development is the default
+    there), so folding app_env into this check meant the token-exchange
+    decision below always took the mock/fabricated-token branch regardless of
+    USE_MOCK_MCP, silently defeating real-mode testing.
+    """
+    return get_settings().use_mock_mcp
+
+def _get_or_register_swiggy_client(db: Session) -> str:
+    """
+    Per Swiggy's authenticate.md: "You don't need to apply for or manage a
+    client identity. Swiggy MCP supports Dynamic Client Registration (RFC
+    7591) at POST /auth/register." A manually-configured SWIGGY_CLIENT_ID
+    (from a builders@swiggy.in production application) always wins; failing
+    that, self-register once per redirect_uri and cache the result so we
+    don't re-register on every login.
+    """
     settings = get_settings()
-    return settings.use_mock_mcp or settings.app_env == "development"
+    if settings.swiggy_client_id:
+        return settings.swiggy_client_id
+
+    cached = db.query(SwiggyClientRegistration).filter(
+        SwiggyClientRegistration.redirect_uri == settings.swiggy_redirect_uri
+    ).first()
+    if cached:
+        return cached.client_id
+
+    import requests
+
+    try:
+        res = requests.post(
+            settings.swiggy_register_url,
+            json={
+                "client_name": "BiteWise",
+                "redirect_uris": [settings.swiggy_redirect_uri],
+                "grant_types": ["authorization_code"],
+                "response_types": ["code"],
+                "token_endpoint_auth_method": "none",
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        res.raise_for_status()
+        data = res.json()
+        client_id = data.get("client_id")
+        if not client_id:
+            raise HTTPException(status_code=502, detail="Swiggy Dynamic Client Registration response missing client_id.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Broad on purpose: DNS failures, timeouts, and bad JSON from a dead
+        # endpoint all look different, but all mean the same thing here — the
+        # registration attempt failed and the caller should get a clean 503
+        # instead of the raw exception type surfacing.
+        raise HTTPException(status_code=503, detail=f"Swiggy Dynamic Client Registration failed: {str(e)}")
+
+    db.add(SwiggyClientRegistration(
+        redirect_uri=settings.swiggy_redirect_uri,
+        client_id=client_id,
+        client_secret=data.get("client_secret"),
+    ))
+    db.commit()
+    return client_id
 
 @router.get("/swiggy/start")
-async def start_swiggy_oauth(request: Request, response: Response) -> Dict[str, str]:
+async def start_swiggy_oauth(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(mutating_rate_limiter)
+) -> Dict[str, str]:
     """
     Step 1 of Swiggy OAuth 2.1 PKCE Flow.
     Generates PKCE verifier, CSRF state, challenge, and sets HTTPOnly cookies.
     """
     settings = get_settings()
-    client_id = settings.swiggy_client_id or ("mock_client" if _is_mock_or_dev() else "")
-    if not client_id:
-        raise HTTPException(status_code=503, detail="SWIGGY_CLIENT_ID is not configured.")
+    # Gated on use_mock_mcp alone (not the broader _is_mock_or_dev helper) so
+    # this always matches the mock-redirect bypass below, which checks the
+    # same flag — otherwise APP_ENV=development + USE_MOCK_MCP=false (a real
+    # local test) would silently build a real Swiggy authorize URL carrying
+    # client_id=mock_client instead of registering a real one.
+    if settings.use_mock_mcp:
+        client_id = "mock_client"
+    else:
+        client_id = _get_or_register_swiggy_client(db)
 
     user_id = await get_current_user_id(request, strict=True)
     secure_cookie = should_use_secure_cookies()
@@ -121,14 +195,14 @@ async def swiggy_oauth_callback(
         return redirect_res
 
     # State validation
-    if not _is_mock_or_dev() or return_json or oauth_state:
+    if not _is_mock_mode() or return_json or oauth_state:
         if not oauth_state or state != oauth_state:
             return handle_error(
                 400,
                 "OAuth state parameter mismatch or session expired. Potential CSRF detected."
             )
 
-        if not _is_mock_or_dev() and not oauth_code_verifier:
+        if not _is_mock_mode() and not oauth_code_verifier:
             return handle_error(
                 400,
                 "OAuth code verifier session expired or missing."
@@ -158,20 +232,18 @@ async def swiggy_oauth_callback(
             "BiteWise session was not found. Please sign in again before connecting Swiggy."
         )
 
-    if not _is_mock_or_dev() and code != "mock_code":
+    if not _is_mock_mode() and code != "mock_code":
         import requests
 
-        # Swiggy OAuth 2.1 PKCE token exchange payload
+        # Swiggy OAuth 2.1 PKCE token exchange payload — matches the documented
+        # shape exactly (authenticate.md shows no client_id/client_secret here;
+        # the PKCE code_verifier is what proves client identity, not a secret).
         payload = {
             "grant_type": "authorization_code",
             "code": code,
             "code_verifier": oauth_code_verifier or "mock_verifier",
             "redirect_uri": settings.swiggy_redirect_uri
         }
-        if settings.swiggy_client_id:
-            payload["client_id"] = settings.swiggy_client_id
-        if settings.swiggy_client_secret:
-            payload["client_secret"] = settings.swiggy_client_secret
 
         try:
             token_res = requests.post(
@@ -244,9 +316,12 @@ async def demo_login(response: Response, db: Session = Depends(get_db)) -> Dict[
     Auto-provisions a demo user and attaches the session cookie.
     """
     settings = get_settings()
-    is_mock = settings.use_mock_mcp or settings.app_env == "development"
-    if not is_mock:
-        raise HTTPException(status_code=403, detail="Demo login is disabled in production mode.")
+    # Strictly use_mock_mcp (see _is_mock_mode's docstring) — demo-login
+    # fabricates a fake "mock_access_token" SwiggyToken row, which must never
+    # be available while USE_MOCK_MCP=false is actively being used to test a
+    # real Swiggy connection.
+    if not settings.use_mock_mcp:
+        raise HTTPException(status_code=403, detail="Demo login is disabled outside mock mode.")
         
     user_id = f"user_demo_{secrets.token_hex(4)}"
     new_user = User(id=user_id, swiggy_user_ref=f"swiggy_demo_{user_id}", auth_provider="guest")
@@ -309,14 +384,28 @@ async def swiggy_status(db: Session = Depends(get_db)) -> Dict[str, Any]:
         db_connected = True
     except Exception:
         pass
-        
+
+    # Doesn't call Swiggy's /auth/register here — that's a network call, and
+    # this status endpoint gets polled. Just reports what's cached; the real
+    # registration attempt (if needed) happens lazily on /auth/swiggy/start.
+    registered_client = db.query(SwiggyClientRegistration).filter(
+        SwiggyClientRegistration.redirect_uri == settings.swiggy_redirect_uri
+    ).first()
+    if settings.swiggy_client_id:
+        client_id_source = "manual"
+    elif registered_client:
+        client_id_source = "dynamic_registration_cached"
+    else:
+        client_id_source = "not_yet_registered"
+
     return {
         "success": True,
         "use_mock_mcp": settings.use_mock_mcp,
         "swiggy_env": settings.swiggy_env,
         "database_connected": db_connected,
         "encryption_key_configured": encryption_ok,
-        "client_id_configured": bool(settings.swiggy_client_id),
+        "client_id_configured": bool(settings.swiggy_client_id) or bool(registered_client),
+        "client_id_source": client_id_source,
         "client_secret_configured": bool(settings.swiggy_client_secret),
         "redirect_uri_configured": bool(settings.swiggy_redirect_uri),
     }

@@ -91,7 +91,7 @@ export default function RecommendationCard({ meal, onSelect, selected, loading }
       )}
 
       <div className="flex items-center justify-between text-xs text-muted border-t border-border pt-2 mt-auto">
-        <span>Delivery: {meal.eta}</span>
+        <span>{meal.eta ? `Delivery: ${meal.eta}` : "Delivery time not available"}</span>
         <span className="font-bold text-text">Rs {meal.price}</span>
       </div>
     </div>

@@ -1,13 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { api, Address, CartPreview, InstamartCheckoutResponse } from "../../lib/api";
+import { api, Address, CartPreview, InstamartCheckoutResponse, isSwiggyReauthError, SWIGGY_REAUTH_MESSAGE } from "../../lib/api";
+import { useAuth } from "../../lib/auth-context";
 
 interface CartPreviewPanelProps {
-  onGetCartPreview: () => Promise<CartPreview>;
+  onGetCartPreview: (addressId?: string) => Promise<CartPreview>;
   onOrderPlaced?: () => void;
 }
 
 const MIN_ORDER_RUPEES = 99;
 const MAX_ORDER_RUPEES = 1000;
+
+function truncateAddressText(text: string, max = 60): string {
+  // Native <select> dropdowns size their open popup to the widest <option>
+  // text and can't be constrained with CSS — real Swiggy addresses run 100+
+  // chars, so the popup balloons unless the option text itself is capped.
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
 
 const TRACKING_STEPS = [
   { label: "Placed", desc: "Order sent to Instamart" },
@@ -26,6 +34,7 @@ function Spinner({ className = "" }: { className?: string }) {
 }
 
 export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: CartPreviewPanelProps) {
+  const { refreshAuth } = useAuth();
   const [preview, setPreview] = useState<CartPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -55,7 +64,7 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
     setLoading(true);
     setPlaceError("");
     try {
-      const data = await onGetCartPreview();
+      const data = await onGetCartPreview(selectedAddress || undefined);
       setPreview(data);
     } catch (err) {
       setPlaceError(`Failed to build cart preview: ${err instanceof Error ? err.message : String(err)}`);
@@ -69,11 +78,18 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
     setPlacing(true);
     setPlaceError("");
     try {
-      const res = await api.checkoutInstamartCart({ address_id: selectedAddress, payment_method: "COD" });
+      // Swiggy's Instamart checkout tool only documents "UPI" or "Cash" for
+      // paymentMethod — "COD" isn't a recognized value there.
+      const res = await api.checkoutInstamartCart({ address_id: selectedAddress, payment_method: "Cash" });
       setPlacedOrder(res);
       onOrderPlaced?.();
     } catch (err) {
-      setPlaceError(err instanceof Error ? err.message : String(err));
+      if (isSwiggyReauthError(err)) {
+        refreshAuth();
+        setPlaceError(SWIGGY_REAUTH_MESSAGE);
+      } else {
+        setPlaceError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       setPlacing(false);
     }
@@ -175,7 +191,7 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
             </option>
             {addresses.map((addr) => (
               <option key={addr.id} value={addr.id}>
-                {addr.label} — {addr.display_text}
+                {addr.label} — {truncateAddressText(addr.display_text)}
               </option>
             ))}
           </select>

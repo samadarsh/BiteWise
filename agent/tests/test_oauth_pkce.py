@@ -11,8 +11,13 @@ from backend.auth.sessions import decrypt_token
 def test_swiggy_oauth_start_sets_cookies_and_returns_url():
     """Verify that start endpoint sets PKCE cookies and returns correct auth URL with state."""
     with TestClient(app) as client:
-        client.post("/auth/guest")
-        res = client.get("/auth/swiggy/start")
+        guest = client.post("/auth/guest").json()
+        # Real mode sets Secure/SameSite=None cookies, which httpx's test
+        # transport (http://testserver, not https) won't resend
+        # automatically — authenticate via the Bearer token instead,
+        # exactly like the real frontend does (frontend/lib/api.ts).
+        auth_headers = {"Authorization": f"Bearer {guest['session_token']}"}
+        res = client.get("/auth/swiggy/start", headers=auth_headers)
         assert res.status_code == 200
         data = res.json()
         assert "redirect_url" in data
@@ -58,6 +63,7 @@ def test_swiggy_oauth_callback_mock_mode_success():
     """Verify that mock callback succeeds only when linked to an active BiteWise user."""
     original_key = os.environ.get("ENCRYPTION_KEY")
     os.environ["ENCRYPTION_KEY"] = secrets.token_hex(32)
+    os.environ["USE_MOCK_MCP"] = "true"
 
     try:
         with TestClient(app) as client:
@@ -149,13 +155,15 @@ def test_swiggy_oauth_callback_production_token_exchange(mock_post):
             data = res.json()
             assert data["success"] is True
 
-            # Verify requests.post parameters
+            # Verify requests.post parameters — matches authenticate.md's
+            # documented token exchange body exactly: no client_id/secret,
+            # PKCE's code_verifier is what proves client identity here.
             mock_post.assert_called_once()
             called_args, called_kwargs = mock_post.call_args
             assert called_kwargs["json"]["code_verifier"] == "stg_verifier"
             assert called_kwargs["json"]["code"] == "stg_code"
-            assert called_kwargs["json"]["client_id"] == "stg_client_id"
-            assert called_kwargs["json"]["client_secret"] == "stg_client_secret"
+            assert "client_id" not in called_kwargs["json"]
+            assert "client_secret" not in called_kwargs["json"]
 
             # Verify saved token in DB
             db = SessionLocal()
@@ -179,8 +187,74 @@ def test_swiggy_oauth_callback_production_token_exchange(mock_post):
         if original_client_secret: os.environ["SWIGGY_CLIENT_SECRET"] = original_client_secret
         else: os.environ.pop("SWIGGY_CLIENT_SECRET", None)
 
+@patch("requests.post")
+def test_swiggy_oauth_callback_real_exchange_even_with_app_env_development(mock_post):
+    """Regression: APP_ENV=development (the default on any local dev machine)
+    must never make the callback fabricate a mock token when USE_MOCK_MCP is
+    explicitly false — that combination is exactly what real-mode testing
+    from localhost looks like."""
+    original_app_env = os.environ.get("APP_ENV")
+    original_use_mock = os.environ.get("USE_MOCK_MCP")
+    original_key = os.environ.get("ENCRYPTION_KEY")
+    original_client_id = os.environ.get("SWIGGY_CLIENT_ID")
+
+    os.environ["APP_ENV"] = "development"
+    os.environ["USE_MOCK_MCP"] = "false"
+    os.environ["ENCRYPTION_KEY"] = secrets.token_hex(32)
+    os.environ["SWIGGY_CLIENT_ID"] = "dev_real_client_id"
+
+    mock_res = MagicMock()
+    mock_res.status_code = 200
+    mock_res.json.return_value = {
+        "access_token": "real_dev_token_555",
+        "expires_in": 3600,
+        "scope": "mcp:tools"
+    }
+    mock_post.return_value = mock_res
+
+    try:
+        with TestClient(app) as client:
+            dev_user_id = f"dev_user_{secrets.token_hex(4)}"
+            db_setup = SessionLocal()
+            try:
+                db_setup.add(User(id=dev_user_id, auth_provider="google", email=f"{dev_user_id}@example.com"))
+                db_setup.commit()
+            finally:
+                db_setup.close()
+
+            client.cookies.set("bitewise_session", dev_user_id)
+            client.cookies.set("oauth_state", "dev_state")
+            client.cookies.set("oauth_code_verifier", "dev_verifier")
+
+            res = client.get("/auth/swiggy/callback?code=real_dev_code&state=dev_state&return_json=true")
+            assert res.status_code == 200
+            data = res.json()
+
+            mock_post.assert_called_once()
+
+            db = SessionLocal()
+            try:
+                tok = db.query(SwiggyToken).filter(SwiggyToken.user_id == data["user_id"]).first()
+                assert tok is not None
+                decrypted = decrypt_token(tok.encrypted_access_token)
+                assert decrypted == "real_dev_token_555"
+                assert not decrypted.startswith("token_swiggy_")
+            finally:
+                db.close()
+    finally:
+        if original_app_env: os.environ["APP_ENV"] = original_app_env
+        else: os.environ.pop("APP_ENV", None)
+        if original_use_mock: os.environ["USE_MOCK_MCP"] = original_use_mock
+        else: os.environ.pop("USE_MOCK_MCP", None)
+        if original_key: os.environ["ENCRYPTION_KEY"] = original_key
+        else: os.environ.pop("ENCRYPTION_KEY", None)
+        if original_client_id: os.environ["SWIGGY_CLIENT_ID"] = original_client_id
+        else: os.environ.pop("SWIGGY_CLIENT_ID", None)
+
+
 def test_swiggy_oauth_callback_success_redirect():
     """Verify that successful oauth callback redirects to frontend app dashboard."""
+    os.environ["USE_MOCK_MCP"] = "true"
     with TestClient(app) as client:
         client.post("/auth/guest")
         client.cookies.set("oauth_state", "my_state")

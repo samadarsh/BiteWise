@@ -10,6 +10,7 @@ from backend.mcp.swiggy_client import ProductionSwiggyClient
 from agent.memory import UserMemoryManager
 from agent.personalization import PersonalizationEngine
 from agent.pipeline import NutriOrderPipeline
+from mcp.mcp_client import SwiggyAuthError
 
 router = APIRouter(prefix="/recommendations", tags=["Recommendations"])
 
@@ -38,6 +39,14 @@ async def search_recommendations(
         query_str = request.query
         priorities = request.priorities
         relaxation_patch = request.relaxation_patch
+
+    # An empty/whitespace query isn't "no preference" — agent/pipeline.py's
+    # intent parser treats falsy input as absent and silently substitutes a
+    # generic "high protein" search, so a blank submission was returning real
+    # recommendations instead of prompting the user to actually describe what
+    # they want.
+    if not query_str or not query_str.strip():
+        raise HTTPException(status_code=400, detail="Please describe what you'd like to eat before searching.")
 
     # 1. Fetch OrderSession
     session_record = db.query(OrderSession).filter(
@@ -99,15 +108,31 @@ async def search_recommendations(
             custom_priorities=priorities,
             relaxation_patch=relaxation_patch
         )
-        
+
+        if results.get("auth_required"):
+            # The pipeline caught SwiggyAuthError internally and returned it as
+            # a normal dict instead of raising, so the signal doesn't get lost
+            # in a 200 response — raise it so the global handler in main.py
+            # turns it into one consistent 401 contract for the frontend.
+            raise SwiggyAuthError(results.get("message", "Your Swiggy session has expired. Please re-authenticate."))
+
+        # A genuine crash/upstream failure (e.g. a bad field type from a real
+        # Swiggy response) must never be relabeled as "no matches, try
+        # relaxing a constraint" — that's a different, misleading story. Only
+        # error_type == "no_candidates" means the pipeline actually ran
+        # cleanly and found nothing that fit.
+        error_type = results.get("error_type")
+        if error_type in ("internal_error", "upstream_error"):
+            raise HTTPException(status_code=502, detail=results.get("message", "Recommendation engine failed unexpectedly."))
+
         # 6. Save query and transition status to RECOMMENDATIONS_READY
         session_record.query = query_str
         transition_session_status(db, session_record, OrderStatus.RECOMMENDATIONS_READY)
         db.commit()
-        
+
         # 7. Generate relaxation options if results are empty
         relaxation_options = []
-        if not results.get("success", False) or not results.get("recommendations"):
+        if not results.get("recommendations"):
             if profile_rec:
                 current_budget = profile_rec.meal_budget_default or 300
                 current_calories = profile_rec.calorie_target or 650
@@ -140,6 +165,12 @@ async def search_recommendations(
             "status": OrderStatus.RECOMMENDATIONS_READY.value,
             "results": results
         }
+    except SwiggyAuthError:
+        transition_session_status(db, session_record, OrderStatus.FAILED)
+        raise
+    except HTTPException:
+        transition_session_status(db, session_record, OrderStatus.FAILED)
+        raise
     except Exception as e:
         transition_session_status(db, session_record, OrderStatus.FAILED)
         raise HTTPException(status_code=500, detail=f"Recommendation query failed: {str(e)}")

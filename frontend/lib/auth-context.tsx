@@ -18,7 +18,7 @@ interface AuthContextType {
   isAuthModalOpen: boolean;
   openAuthModal: () => void;
   closeAuthModal: () => void;
-  loginWithGoogle: (idToken?: string, email?: string, name?: string, avatarUrl?: string) => Promise<boolean>;
+  loginWithGoogle: (idToken?: string, email?: string, name?: string, avatarUrl?: string, accessToken?: string) => Promise<boolean>;
   loginAsGuest: () => Promise<boolean>;
   connectSwiggy: () => Promise<void>;
   logout: () => Promise<void>;
@@ -57,11 +57,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const closeAuthModal = useCallback(() => setIsAuthModalOpen(false), []);
 
   const loginWithGoogle = useCallback(
-    async (idToken?: string, email?: string, name?: string, avatarUrl?: string) => {
+    async (idToken?: string, email?: string, name?: string, avatarUrl?: string, accessToken?: string) => {
       try {
         setIsLoading(true);
         const res = await loginWithGoogleApi({
           id_token: idToken,
+          access_token: accessToken,
           email,
           name,
           avatar_url: avatarUrl,

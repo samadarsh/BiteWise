@@ -6,35 +6,95 @@ import { useAuth } from "../lib/auth-context";
 export function AuthModal() {
   const { isAuthModalOpen, closeAuthModal, loginWithGoogle, loginAsGuest, isLoading } = useAuth();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
   if (!isAuthModalOpen) return null;
 
   const handleGoogleSignIn = async () => {
+    if (isSigningIn) return;
     setErrorMsg(null);
+    setIsSigningIn(true);
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
-    // Check if Google GIS SDK is loaded and client ID configured
+    // Check if Google GIS SDK is loaded and client ID configured.
+    // Uses the classic OAuth2 implicit/popup flow (initTokenClient), NOT
+    // the One-Tap/FedCM flow (accounts.id.prompt) — FedCM's origin
+    // validation rejected this project's origin with `unregistered_origin`
+    // even though the origin was correctly configured in Google Cloud
+    // Console. The popup flow doesn't use navigator.credentials.get() at
+    // all, so it sidesteps FedCM entirely.
     if (clientId && typeof window !== "undefined") {
-      const g = (window as unknown as { google?: { accounts?: { id?: { initialize: (opts: unknown) => void; prompt: () => void } } } }).google;
-      if (g?.accounts?.id) {
-        g.accounts.id.initialize({
+      type TokenResponse = {
+        access_token?: string;
+        error?: string;
+        error_description?: string;
+      };
+      const g = (window as unknown as {
+        google?: {
+          accounts?: {
+            oauth2?: {
+              initTokenClient: (opts: {
+                client_id: string;
+                scope: string;
+                callback: (resp: TokenResponse) => void;
+                error_callback?: (err: { type?: string; message?: string }) => void;
+              }) => { requestAccessToken: (opts?: { prompt?: string }) => void };
+            };
+          };
+        };
+      }).google;
+      if (g?.accounts?.oauth2) {
+        let settled = false;
+        const client = g.accounts.oauth2.initTokenClient({
           client_id: clientId,
-          callback: async (response: { credential?: string }) => {
-            if (response.credential) {
-              const success = await loginWithGoogle(response.credential);
-              if (!success) setErrorMsg("Google token verification failed.");
+          scope: "openid email profile",
+          callback: async (resp: TokenResponse) => {
+            if (settled) return;
+            settled = true;
+            try {
+              if (resp.access_token) {
+                const success = await loginWithGoogle(undefined, undefined, undefined, undefined, resp.access_token);
+                if (!success) setErrorMsg("Google token verification failed.");
+              } else {
+                setErrorMsg(resp.error_description || resp.error || "Google sign-in failed.");
+              }
+            } finally {
+              setIsSigningIn(false);
             }
           },
+          error_callback: (err) => {
+            if (settled) return;
+            settled = true;
+            setIsSigningIn(false);
+            if (err?.type === "popup_closed") return;
+            setErrorMsg(err?.message || "Google sign-in was cancelled or blocked (check for popup blockers).");
+          },
         });
-        g.accounts.id.prompt();
+        client.requestAccessToken();
         return;
       }
     }
 
-    // Dev / mock fallback
-    const success = await loginWithGoogle("mock_google_token_123", "demo.user@gmail.com", "Demo User");
-    if (!success) {
-      setErrorMsg("Failed to authenticate with Google. Please try again.");
+    // Dev / mock fallback only — reachable when the GIS SDK didn't load or
+    // no client ID is configured. On a real production build this must
+    // never silently sign the visitor into a shared "Demo User" account;
+    // NODE_ENV=production is set automatically by `next build`, so this
+    // check can't accidentally ship enabled (the backend also independently
+    // rejects a "mock_" token outside USE_MOCK_MCP, but that only prevents
+    // the account switch from persisting — it doesn't stop the confusing
+    // "looked like it signed in" flash beforehand).
+    if (process.env.NODE_ENV === "production") {
+      setIsSigningIn(false);
+      setErrorMsg("Google sign-in isn't available right now. Please retry in a moment, or refresh the page.");
+      return;
+    }
+    try {
+      const success = await loginWithGoogle("mock_google_token_123", "demo.user@gmail.com", "Demo User");
+      if (!success) {
+        setErrorMsg("Failed to authenticate with Google. Please try again.");
+      }
+    } finally {
+      setIsSigningIn(false);
     }
   };
 
@@ -84,7 +144,7 @@ export function AuthModal() {
         <div className="space-y-3 mb-6">
           <button
             onClick={handleGoogleSignIn}
-            disabled={isLoading}
+            disabled={isLoading || isSigningIn}
             className="w-full flex items-center justify-center gap-3 bg-white text-[#17211c] border border-border font-semibold py-3 px-4 rounded-xl hover:brightness-95 transition shadow-md disabled:opacity-50"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -105,12 +165,12 @@ export function AuthModal() {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
               />
             </svg>
-            <span>{isLoading ? "Signing in..." : "Sign in with Google"}</span>
+            <span>{isLoading || isSigningIn ? "Signing in..." : "Sign in with Google"}</span>
           </button>
 
           <button
             onClick={handleGuestSignIn}
-            disabled={isLoading}
+            disabled={isLoading || isSigningIn}
             className="w-full flex items-center justify-center gap-2 bg-surface-2 hover:bg-surface-3 text-text font-medium py-3 px-4 rounded-xl border border-border transition disabled:opacity-50 text-sm"
           >
             <span>👤 Continue as Guest</span>

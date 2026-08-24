@@ -14,6 +14,7 @@ from backend.household.service import get_or_create_user_household
 from backend.household.intelligence import group_grocery_items
 from backend.mcp.swiggy_instamart_client import ProductionSwiggyInstamartClient
 from mcp.instamart_mock import MockSwiggyInstamartMCP
+from mcp.mcp_client import SwiggyAuthError, SwiggyMCPError
 from config.settings import get_settings
 
 router = APIRouter(prefix="/grocery-list", tags=["Grocery List Management"])
@@ -297,7 +298,7 @@ async def match_recipe_ingredients(
     }
 
 
-def _match_catalog_product(item_name: str) -> Optional[Dict[str, Any]]:
+def _match_catalog_product_mock(item_name: str) -> Optional[Dict[str, Any]]:
     """
     Matches a free-text grocery item name against the same Instamart catalog used
     for cart/checkout (mcp.instamart_mock.MockSwiggyInstamartMCP), so the price shown
@@ -317,10 +318,63 @@ def _match_catalog_product(item_name: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _build_cart_lines(db: Session, household_id: str) -> Dict[str, Any]:
+def _match_catalog_product_live(item_name: str, user_id: str, address_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Real-mode counterpart to _match_catalog_product_mock — searches Swiggy's
+    actual Instamart catalog instead of the local mock fixture, so real
+    checkout never sends a fabricated mock spinId to a real cart/checkout
+    call (confirmed live: real search_products returns
+    {"displayName", "variations": [{"spinId", "price": {"offerPrice"}, ...}]},
+    not the mock catalog's flat {"name", "price", "spinId"} shape — normalized
+    to that same flat shape here so callers don't need to know the difference).
+    """
+    try:
+        client = ProductionSwiggyInstamartClient(user_id=user_id)
+        products = client.search_products(addressId=address_id, query=item_name)
+    except SwiggyAuthError:
+        # An expired/missing Swiggy session isn't "item not in catalog" —
+        # treating it that way silently fell back to fake SIMULATED pricing
+        # for the whole preview instead of prompting reconnect. Let it
+        # propagate to main.py's global handler for a clean 401.
+        raise
+    except Exception:
+        return None
+
+    for prod in products:
+        variations = prod.get("variations") or []
+        available = next((v for v in variations if v.get("isInStockAndAvailable")), variations[0] if variations else None)
+        if not available or not available.get("spinId"):
+            continue
+        price = (available.get("price") or {}).get("offerPrice") or (available.get("price") or {}).get("mrp")
+        if price is None:
+            continue
+        return {
+            "name": prod.get("displayName") or item_name,
+            "price": float(price),
+            "spinId": available["spinId"],
+        }
+    return None
+
+
+def _match_catalog_product(item_name: str, user_id: str, address_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Only mock mode uses fixture data — real mode always searches Swiggy's
+    actual catalog (or falls back to the SIMULATED estimate below if no
+    address is available yet, never to fabricated mock products/prices)."""
+    settings = get_settings()
+    if settings.use_mock_mcp:
+        return _match_catalog_product_mock(item_name)
+    if not address_id:
+        return None
+    return _match_catalog_product_live(item_name, user_id, address_id)
+
+
+def _build_cart_lines(db: Session, household_id: str, user_id: str, address_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Shared by the preview and checkout endpoints so what the user previews is
-    exactly what gets ordered — same matching, same totals.
+    exactly what gets ordered — same matching, same totals. address_id is
+    required for real-mode catalog matching (Instamart pricing/availability
+    is location-specific); without it, real mode falls back to the same
+    SIMULATED estimate used for an unmatched item, never to mock data.
     """
     active_list = get_or_create_active_list(db, household_id)
     unpurchased_items = db.query(GroceryListItem).filter(
@@ -333,7 +387,7 @@ def _build_cart_lines(db: Session, household_id: str) -> Dict[str, Any]:
     total_cost = 0.0
 
     for item in unpurchased_items:
-        matched = _match_catalog_product(item.item_name)
+        matched = _match_catalog_product(item.item_name, user_id, address_id)
 
         if matched:
             matched_name = matched["name"]
@@ -369,14 +423,17 @@ def _build_cart_lines(db: Session, household_id: str) -> Dict[str, Any]:
 
 @router.post("/cart-preview", response_model=CartPreviewResponse)
 async def generate_cart_preview(
+    address_id: Optional[str] = None,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
     """
-    Builds a simulated Instamart cart preview based on unpurchased grocery list items.
+    Builds an Instamart cart preview based on unpurchased grocery list items —
+    matched against the mock catalog in mock mode, or Swiggy's real Instamart
+    catalog (needs address_id) otherwise.
     """
     household = get_or_create_user_household(db, user_id)
-    lines = _build_cart_lines(db, household.id)
+    lines = _build_cart_lines(db, household.id, user_id, address_id)
 
     return CartPreviewResponse(
         items=lines["preview_items"],
@@ -387,7 +444,10 @@ async def generate_cart_preview(
 
 class InstamartCheckoutRequest(BaseModel):
     address_id: str = Field(..., min_length=1)
-    payment_method: str = Field("COD", min_length=1)
+    # Swiggy's Instamart checkout tool only documents "UPI" or "Cash" for
+    # paymentMethod (defaults to "Cash" if omitted) — "COD" isn't a
+    # recognized value there, same mismatch as the Food order flow.
+    payment_method: str = Field("Cash", min_length=1)
 
 
 @router.post("/checkout")
@@ -404,7 +464,7 @@ async def checkout_instamart_cart(
     mock mode) and capped at Rs 1000 per the Swiggy Builders Club rules.
     """
     household = get_or_create_user_household(db, user_id)
-    lines = _build_cart_lines(db, household.id)
+    lines = _build_cart_lines(db, household.id, user_id, req.address_id)
 
     if not lines["cart_items_for_mcp"]:
         raise HTTPException(status_code=400, detail="Your grocery list is empty.")
@@ -422,7 +482,7 @@ async def checkout_instamart_cart(
         )
 
     settings = get_settings()
-    is_mock = settings.use_mock_mcp or settings.app_env == "development"
+    is_mock = settings.use_mock_mcp
     if not is_mock and (settings.swiggy_env != "staging" or not settings.allow_place_order):
         raise HTTPException(
             status_code=403,
@@ -456,6 +516,10 @@ async def checkout_instamart_cart(
             "restocked_to_full": restock_result["restocked_to_full"],
         }
     except HTTPException:
+        raise
+    except (SwiggyAuthError, SwiggyMCPError):
+        session_record.status = "FAILED"
+        db.commit()
         raise
     except Exception as e:
         session_record.status = "FAILED"

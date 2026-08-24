@@ -1,6 +1,6 @@
 import os
 from typing import Any, Dict, List, Optional, Union
-from mcp.mcp_client import SwiggyFoodMCPClient
+from mcp.mcp_client import SwiggyFoodMCPClient, SwiggyAuthError, SwiggyMCPError
 from mcp.mcp_mock import MockSwiggyFoodMCP
 from backend.db.session import SessionLocal
 from backend.db.models import SwiggyToken
@@ -35,7 +35,13 @@ class ProductionSwiggyClient:
         try:
             token_record = db.query(SwiggyToken).filter(SwiggyToken.user_id == self.user_id).first()
             if not token_record:
-                raise ValueError(f"No Swiggy token registered for user: {self.user_id}")
+                # Same signal as an expired token (SwiggyAuthError) rather than
+                # a bare ValueError — both "never connected" and "connected
+                # but expired" mean the same thing to a caller: go through
+                # Connect Swiggy. Reuses the 401 swiggy_reauth_required
+                # contract + frontend prompt already wired for the expiry case,
+                # instead of leaking an internal user_id in a raw 500.
+                raise SwiggyAuthError("Connect your Swiggy account first to use this feature.")
 
             # Decrypt token
             decrypted_token = decrypt_token(token_record.encrypted_access_token)
@@ -70,6 +76,15 @@ class ProductionSwiggyClient:
         client = self._get_initialized_client()
         return client.get_restaurant_menu(addressId=addressId, restaurantId=restaurantId, page=page, pageSize=pageSize)
 
+    def get_restaurant_menu_with_metadata(self, addressId: str, restaurantId: str) -> Dict[str, Any]:
+        """Real-mode only — the mock client has no equivalent because mock
+        fixtures already carry honest per-item availability/rating/delivery
+        data directly, so callers must not invoke this in mock mode."""
+        client = self._get_initialized_client()
+        if isinstance(client, MockSwiggyFoodMCP):
+            raise SwiggyMCPError("get_restaurant_menu_with_metadata is real-mode only; mock fixtures already carry this data per-item.")
+        return client.get_restaurant_menu_with_metadata(addressId=addressId, restaurantId=restaurantId)
+
     def update_food_cart(self, restaurantId: str, cartItems: List[Dict[str, Any]], addressId: str, restaurantName: Optional[str] = None) -> Dict[str, Any]:
         client = self._get_initialized_client()
         return client.update_food_cart(restaurantId=restaurantId, cartItems=cartItems, addressId=addressId, restaurantName=restaurantName)
@@ -101,3 +116,26 @@ class ProductionSwiggyClient:
     def flush_food_cart(self) -> Dict[str, Any]:
         client = self._get_initialized_client()
         return client.flush_food_cart()
+
+    def report_error(
+        self,
+        tool: str,
+        error_message: str,
+        domain: Optional[str] = None,
+        flow_description: Optional[str] = None,
+        tool_context: Optional[Dict[str, Any]] = None,
+        user_notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Nothing genuine to report to Swiggy about a mock-mode failure —
+        no-ops there instead of erroring on the mock client's missing method."""
+        client = self._get_initialized_client()
+        if isinstance(client, MockSwiggyFoodMCP):
+            return {"skipped": True, "reason": "mock mode — nothing to report to Swiggy"}
+        return client.report_error(
+            tool=tool,
+            error_message=error_message,
+            domain=domain,
+            flow_description=flow_description,
+            tool_context=tool_context,
+            user_notes=user_notes,
+        )

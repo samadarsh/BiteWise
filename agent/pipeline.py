@@ -65,6 +65,7 @@ class NutriOrderPipeline:
                 metrics_tracker.record_recommendation(success=False)
                 return {
                     "success": False,
+                    "error_type": "no_candidates",
                     "message": "No meals matched your protein and dietary filters even after constraint relaxation.",
                     "fallback_warnings": fallback_warnings
                 }
@@ -132,6 +133,7 @@ class NutriOrderPipeline:
             metrics_tracker.record_recommendation(success=False)
             return {
                 "success": False,
+                "error_type": "upstream_error",
                 "message": f"Swiggy API Error: {str(e)}"
             }
         except Exception as e:
@@ -139,6 +141,7 @@ class NutriOrderPipeline:
             metrics_tracker.record_recommendation(success=False)
             return {
                 "success": False,
+                "error_type": "internal_error",
                 "message": f"An unexpected error occurred: {str(e)}"
             }
 
@@ -211,6 +214,7 @@ class NutriOrderPipeline:
             if menu_results:
                 candidates = self._convert_mcp_items(menu_results)
                 log_info(f"Primary search returned {len(candidates)} items.")
+                candidates = self._enrich_and_filter_by_restaurant_status(candidates, address_id)
         except Exception as e:
             log_error(f"Primary search failed: {str(e)}", error_category="upstream_error")
 
@@ -247,6 +251,21 @@ class NutriOrderPipeline:
                         carbs = item.get("carbs_g") or est["estimated_carbs_g"]
                         confidence = 1.0 if not is_estimated else est["confidence"]
 
+                        # Real field names from a live search_restaurants
+                        # response: distanceKm, deliveryTimeMinutes, avgRating
+                        # — confirmed against the actual API. The old code
+                        # read delivery_time_min/distance_km/rating (none of
+                        # which exist under those names), so it always missed
+                        # this real data and silently substituted fake
+                        # constants (30 min, 2.5 km) instead.
+                        real_eta = rest.get("deliveryTimeMinutes")
+                        real_distance = rest.get("distanceKm")
+                        real_rating = rest.get("avgRating")
+                        # get_restaurant_menu items carry a real isVeg boolean
+                        # — use it instead of guessing "any".
+                        item_is_veg = item.get("isVeg")
+                        veg_pref = "veg" if item_is_veg is True else "non-veg" if item_is_veg is False else "any"
+
                         candidates.append({
                             "restaurant_id": rest["id"],
                             "restaurant_name": rest["name"],
@@ -259,13 +278,13 @@ class NutriOrderPipeline:
                             "confidence": confidence,
                             "is_estimated": is_estimated,
                             "price": item["price"],
-                            "delivery_time_min": rest.get("delivery_time_min", 30),
-                            "distance_km": rest.get("distance_km", 2.5),
-                            "delivery_time_spoken": rest.get("deliveryTimeSpoken") or f"about {rest.get('delivery_time_min', 30)} minutes",
+                            "delivery_time_min": real_eta,
+                            "distance_km": real_distance,
+                            "delivery_time_spoken": rest.get("deliveryTimeRange") or (f"about {real_eta} minutes" if real_eta is not None else None),
                             "short_description": item.get("shortDescription") or f"{item_name} from {rest['name']}. Estimated {protein} grams of protein and {calories} calories.",
-                            "dietary_preference": item.get("dietary_preference", "any"),
-                            "rating": rest.get("rating", 4.2),
-                            "availabilityStatus": rest.get("availabilityStatus", "OPEN")
+                            "dietary_preference": veg_pref,
+                            "rating": self._safe_float(real_rating, None),
+                            "availabilityStatus": rest.get("availabilityStatus")
                         })
                 log_info(f"Fallback 1 gathered {len(candidates)} candidates.")
             except Exception as e:
@@ -289,6 +308,7 @@ class NutriOrderPipeline:
                 )
                 if fallback_results:
                     candidates = self._convert_mcp_items(fallback_results)
+                    candidates = self._enrich_and_filter_by_restaurant_status(candidates, address_id)
                     fallback_warnings.append(
                         f"Budget constraint relaxed to Rs {profile['typical_budget']} "
                         f"and delivery limit extended to 60 minutes."
@@ -297,6 +317,56 @@ class NutriOrderPipeline:
                 log_error(f"Fallback 2 search failed: {str(e)}", error_category="upstream_error")
 
         return candidates, fallback_warnings
+
+    def _enrich_and_filter_by_restaurant_status(self, candidates: List[Dict[str, Any]], address_id: str) -> List[Dict[str, Any]]:
+        """
+        search_menu carries no open/closed, rating, or delivery-time signal
+        at all — without this, a restaurant that's actually closed (e.g. late
+        at night) could still be recommended, contradicting Swiggy's own
+        guidance to only recommend/add items from OPEN restaurants. Mock mode
+        already sets honest per-item data directly, so this only runs for
+        real Swiggy data, and only against each unique restaurant found in
+        the results (cached 30 min per restaurant, same as get_restaurant_menu).
+        """
+        from config.settings import get_settings
+        if get_settings().use_mock_mcp:
+            return candidates
+
+        restaurant_ids = {c["restaurant_id"] for c in candidates if c.get("restaurant_id") and c["restaurant_id"] != "unknown_restaurant"}
+        meta_by_restaurant: Dict[str, Dict[str, Any]] = {}
+        for rid in restaurant_ids:
+            try:
+                result = self._execute_mcp_call("get_restaurant_menu_with_metadata", {"addressId": address_id, "restaurantId": rid})
+                restaurant = result.get("restaurant") if isinstance(result, dict) else None
+                if isinstance(restaurant, dict):
+                    meta_by_restaurant[rid] = restaurant
+            except Exception as e:
+                # Fail open on a lookup error — don't hide an item just
+                # because a status check glitched, only when we positively
+                # confirm it's closed.
+                log_warn(f"Could not verify open/closed status for restaurant {rid}: {str(e)}")
+
+        enriched: List[Dict[str, Any]] = []
+        for c in candidates:
+            meta = meta_by_restaurant.get(c.get("restaurant_id", ""))
+            # Confirmed live: Swiggy never sends isOpen: false for a closed
+            # restaurant — it omits the field entirely (open restaurants get
+            # isOpen: true explicitly). So "not True" (missing or False) is
+            # the real closed signal, not a literal False check, which never
+            # actually matches anything Swiggy sends.
+            if meta is not None and meta.get("isOpen") is not True:
+                continue
+            if meta is not None:
+                if c.get("rating") is None:
+                    c["rating"] = self._safe_float(meta.get("avgRating"), None)
+                if c.get("delivery_time_min") is None:
+                    c["delivery_time_min"] = meta.get("deliveryTime")
+                    if c["delivery_time_min"] is not None and not c.get("delivery_time_spoken"):
+                        c["delivery_time_spoken"] = f"about {c['delivery_time_min']} minutes"
+                if c.get("availabilityStatus") is None:
+                    c["availabilityStatus"] = "OPEN" if meta.get("isOpen") else None
+            enriched.append(c)
+        return enriched
 
     def _validate_constraints(self, candidates: List[Dict[str, Any]], profile: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Validate strict constraints such as restaurant open status and ₹1000 limit."""
@@ -350,13 +420,26 @@ class NutriOrderPipeline:
         
         # 2. Store to cache (menus: 30 min, searches: 5 min, addresses: 1 hour)
         ttl = 300.0  # default 5 minutes
-        if tool_name == "get_restaurant_menu":
+        if tool_name in ("get_restaurant_menu", "get_restaurant_menu_with_metadata"):
             ttl = 1800.0
         elif tool_name == "get_addresses":
             ttl = 3600.0
             
         mcp_cache.set(tool_name, arguments, val, ttl)
         return val
+
+    @staticmethod
+    def _safe_float(value: Any, default: Optional[float]) -> Optional[float]:
+        """Real Swiggy responses mix numeric types freely (e.g. search_menu's
+        "rating" comes back as the string "4.8", not a float) — ranking.py's
+        factors do arithmetic on these fields directly, so a raw string here
+        crashes the whole pipeline with a silently-swallowed TypeError."""
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
 
     def _convert_mcp_items(self, mcp_items: Any) -> List[Dict[str, Any]]:
         """Normalize items returned by mcp search_menu tool into candidate dicts."""
@@ -383,10 +466,20 @@ class NutriOrderPipeline:
             carbs = item.get("carbs_g") or est["estimated_carbs_g"]
             confidence = 1.0 if not is_estimated else est["confidence"]
             
+            restaurant_name = item.get("restaurant_name") or "Restaurant"
+
             normalized.append({
-                "restaurant_id": item.get("restaurant_id", "rest_1"),
-                "restaurant_name": item.get("restaurant_name", "Protein Bowl Co"),
-                "item_id": item.get("id") or item.get("item_id"),
+                # "rest_1" / "Protein Bowl Co" were made-up placeholder
+                # values baked into the real-mode path — real search_menu
+                # always provides these, so this only matters as a last
+                # resort, and even then it should read as "unknown", not a
+                # specific fake brand name.
+                "restaurant_id": item.get("restaurant_id") or "unknown_restaurant",
+                "restaurant_name": restaurant_name,
+                # menu_item_id is the real search_menu field name (confirmed
+                # against a live response); id/item_id are the mock client's
+                # naming, kept as fallbacks so mock mode is unaffected.
+                "item_id": item.get("menu_item_id") or item.get("id") or item.get("item_id"),
                 "item_name": item_name,
                 "protein_g": protein,
                 "calories": calories,
@@ -395,13 +488,24 @@ class NutriOrderPipeline:
                 "confidence": confidence,
                 "is_estimated": is_estimated,
                 "price": item.get("price", 199),
-                "delivery_time_min": item.get("delivery_time_min", 30),
-                "distance_km": item.get("distance_km", 2.5),
-                "delivery_time_spoken": item.get("deliveryTimeSpoken") or f"about {item.get('delivery_time_min', 30)} minutes",
-                "short_description": item.get("shortDescription") or f"{item_name} from {item.get('restaurant_name', 'Protein Bowl Co')}. Estimated {protein} grams of protein and {calories} calories.",
+                # Confirmed live: search_menu items carry no delivery-time,
+                # distance, or open/closed signal at all (that data only
+                # exists on search_restaurants results) — this used to
+                # fabricate a specific-sounding "30 min, 2.5 km" for every
+                # real item instead of admitting the data isn't there.
+                # None here means "unknown", not "unavailable" or "far away".
+                "delivery_time_min": item.get("delivery_time_min"),
+                "distance_km": item.get("distance_km"),
+                "delivery_time_spoken": item.get("deliveryTimeSpoken") or (f"about {item['delivery_time_min']} minutes" if item.get("delivery_time_min") is not None else None),
+                "short_description": item.get("shortDescription") or f"{item_name} from {restaurant_name}. Estimated {protein} grams of protein and {calories} calories.",
                 "dietary_preference": item.get("dietary_preference", "any"),
-                "rating": item.get("rating", 4.3),
-                "popularity_score": item.get("popularity_score", 0.85),
-                "availabilityStatus": item.get("availabilityStatus", "OPEN")
+                "rating": self._safe_float(item.get("rating"), None),
+                "popularity_score": self._safe_float(item.get("popularity_score"), None),
+                # search_menu never reports this — defaulting to a fake
+                # "OPEN" would silently vouch for restaurants we have no
+                # actual signal about. None passes through _validate_constraints
+                # unfiltered (the honest behavior when status is unknown),
+                # matching how a real value would filter closed restaurants.
+                "availabilityStatus": item.get("availabilityStatus")
             })
         return normalized

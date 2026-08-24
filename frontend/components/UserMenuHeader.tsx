@@ -10,9 +10,26 @@ interface UserMenuHeaderProps {
 export function UserMenuHeader({ onEditProfile }: UserMenuHeaderProps) {
   const { user, isAuthenticated, isSwiggyConnected, openAuthModal, connectSwiggy, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const mcpMode = user?.mcp_mode;
+  const isLive = mcpMode === "live";
 
   return (
     <div className="flex items-center gap-2 sm:gap-3">
+      {/* Always visible (not hidden on mobile) — live mode touches a real
+          Swiggy account and real money, so it should never be a click away
+          from discovering which one you're in. */}
+      {isAuthenticated && mcpMode && (
+        <span
+          className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border ${
+            isLive ? "bg-danger/10 border-danger/40 text-danger" : "bg-surface-2 border-border-strong text-subtle"
+          }`}
+          title={isLive ? "Connected to real Swiggy staging/production" : "Using the local mock Swiggy MCP — no real orders"}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${isLive ? "bg-danger animate-pulse" : "bg-subtle"}`} />
+          <span>{isLive ? "Live" : "Mock"}</span>
+        </span>
+      )}
+
       {isAuthenticated && onEditProfile && (
         <button
           onClick={onEditProfile}
@@ -76,6 +93,15 @@ export function UserMenuHeader({ onEditProfile }: UserMenuHeaderProps) {
                 >
                   <span>⚙️ Edit Profile &amp; Biometrics</span>
                 </button>
+              )}
+
+              {mcpMode && (
+                <div className="w-full px-4 py-2 flex items-center justify-between border-b border-border">
+                  <span>Swiggy Mode</span>
+                  <span className={`font-semibold ${isLive ? "text-danger" : "text-subtle"}`}>
+                    {isLive ? "Live (real account)" : "Mock (no real orders)"}
+                  </span>
+                </div>
               )}
 
               <button

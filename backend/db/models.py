@@ -33,6 +33,21 @@ class SwiggyToken(Base):
     user = relationship("User", back_populates="token")
 
 
+class SwiggyClientRegistration(Base):
+    """
+    Caches the result of Dynamic Client Registration (RFC 7591, POST
+    /auth/register) so BiteWise only registers itself with Swiggy once per
+    redirect_uri instead of on every OAuth start — DCR is how Swiggy issues a
+    client_id for localhost dev without a manual builders@swiggy.in application.
+    """
+    __tablename__ = "swiggy_client_registrations"
+
+    redirect_uri = Column(String, primary_key=True)
+    client_id = Column(String, nullable=False)
+    client_secret = Column(String, nullable=True)
+    registered_at = Column(DateTime, default=func.now(), nullable=False)
+
+
 class UserProfile(Base):
     __tablename__ = "user_profiles"
 
@@ -54,6 +69,7 @@ class UserProfile(Base):
     meal_budget_default = Column(Integer, default=300, nullable=False)
     preferred_meal_times = Column(JSON, default=dict, nullable=False)
     spice_tolerance = Column(String, default="medium", nullable=False)
+    priority_weights = Column(JSON, default=dict, nullable=False)
 
     user = relationship("User", back_populates="profile")
 
@@ -84,6 +100,10 @@ class OrderSession(Base):
     selected_item_nutrition = Column(JSON, nullable=True)
     total = Column(Float, nullable=True)
     payment_method = Column(String, nullable=True)
+    # Captured once at session creation ("mock" or "live") — lets order
+    # history tell a fixture order from a real one after the user has
+    # switched USE_MOCK_MCP at some point.
+    mcp_mode = Column(String, nullable=True)
     created_at = Column(DateTime, default=func.now(), nullable=False)
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
 

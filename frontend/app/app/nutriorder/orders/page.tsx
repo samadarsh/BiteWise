@@ -79,6 +79,16 @@ export default function NutriOrderOrdersPage() {
                   <span className={`shrink-0 text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${STATUS_STYLES[s.status] || "bg-surface-2 text-subtle border-border"}`}>
                     {statusLabel(s.status)}
                   </span>
+                  {s.mcp_mode && (
+                    <span
+                      title={s.mcp_mode === "mock" ? "Placed with demo data, not a real Swiggy order" : "Placed against your real Swiggy account"}
+                      className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
+                        s.mcp_mode === "mock" ? "bg-warning/10 text-warning border-warning/20" : "bg-info/10 text-info border-info/20"
+                      }`}
+                    >
+                      {s.mcp_mode}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-subtle truncate mt-0.5">
                   {s.restaurant_name || "No restaurant selected"} · {new Date(s.created_at).toLocaleString()}

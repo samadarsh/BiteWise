@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from backend.db.session import get_db
 from backend.db.models import OrderSession
 from backend.orders.state_machine import OrderStatus, validate_state_transition, transition_session_status
+from mcp.mcp_client import SwiggyAuthError, SwiggyMCPError
 
 router = APIRouter(prefix="/orders", tags=["Order Sessions"])
 
@@ -21,6 +22,7 @@ class OrderSessionSummary(BaseModel):
     restaurant_name: Optional[str] = None
     meal_name: Optional[str] = None
     total: Optional[float] = None
+    mcp_mode: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -55,6 +57,7 @@ async def list_order_sessions(
                 restaurant_name=nutrition.get("restaurant_name"),
                 meal_name=nutrition.get("item_name"),
                 total=record.total,
+                mcp_mode=record.mcp_mode,
             )
         )
     return summaries
@@ -69,11 +72,13 @@ async def start_order_session(
     Spawns a new order session and sets initial state to START.
     """
     import secrets
+    from config.settings import get_settings
     session_id = f"session_{secrets.token_hex(6)}"
     new_session = OrderSession(
         id=session_id,
         user_id=user_id,
-        status=OrderStatus.START.value
+        status=OrderStatus.START.value,
+        mcp_mode="mock" if get_settings().use_mock_mcp else "live"
     )
     db.add(new_session)
     db.commit()
@@ -305,6 +310,9 @@ async def sync_cart(
         }
     except HTTPException:
         raise
+    except (SwiggyAuthError, SwiggyMCPError):
+        transition_session_status(db, session_record, OrderStatus.FAILED)
+        raise
     except Exception as e:
         transition_session_status(db, session_record, OrderStatus.FAILED)
         raise HTTPException(status_code=500, detail=f"Cart sync failed: {str(e)}")
@@ -343,6 +351,9 @@ async def review_cart(
             "cart": cart_info,
             "status": OrderStatus.CART_REVIEW_READY.value
         }
+    except (SwiggyAuthError, SwiggyMCPError):
+        transition_session_status(db, session_record, OrderStatus.FAILED)
+        raise
     except Exception as e:
         transition_session_status(db, session_record, OrderStatus.FAILED)
         raise HTTPException(status_code=500, detail=f"Cart review failed: {str(e)}")
@@ -402,7 +413,7 @@ async def place_order(
     # 0. Safety checkout lock checks (Ensure 403 Forbidden is explicitly returned if blocked)
     from config.settings import get_settings
     settings = get_settings()
-    is_mock = settings.use_mock_mcp or settings.app_env == "development"
+    is_mock = settings.use_mock_mcp
     if not is_mock:
         if settings.swiggy_env != "staging" or not settings.allow_place_order:
             raise HTTPException(
@@ -481,6 +492,12 @@ async def place_order(
             (method for method in normalized_payment_methods if method.upper() == "COD"),
             normalized_payment_methods[0]
         )
+        # Swiggy's own place_food_order docs only accept paymentMethod "UPI"
+        # or "Cash" — "COD" is never a documented value there, even though
+        # get_food_cart's availablePaymentMethods uses "COD" as Swiggy's own
+        # label for pay-on-delivery. Translate before calling the real tool;
+        # store what was actually sent, not the cart's raw label.
+        payment_method = "Cash" if payment_method.upper() == "COD" else payment_method
 
         # 5. Execute placing safely using resilience layer checkout recovery policy
         from agent.resilience import place_order_safely
@@ -525,6 +542,9 @@ async def place_order(
         }
 
     except HTTPException:
+        raise
+    except (SwiggyAuthError, SwiggyMCPError):
+        transition_session_status(db, session_record, OrderStatus.FAILED)
         raise
     except Exception as e:
         # Failsafe: transition session to FAILED in case of other errors
@@ -577,6 +597,8 @@ async def get_applicable_coupons(
             "success": True,
             "coupons": cod_coupons
         }
+    except (SwiggyAuthError, SwiggyMCPError):
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch coupons: {str(e)}")
 
@@ -617,6 +639,8 @@ async def apply_coupon_to_cart(
             "cart": cart_info,
             "status": session_record.status
         }
+    except (SwiggyAuthError, SwiggyMCPError):
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Coupon application failed: {str(e)}")
 

@@ -132,26 +132,36 @@ class BudgetFactor(RankingFactor):
 
 class DeliveryTimeFactor(RankingFactor):
     def score(self, meal: Dict[str, Any], profile: Dict[str, Any]) -> Tuple[float, str]:
-        eta = meal.get("delivery_time_min", 30)
+        eta = meal.get("delivery_time_min")
         max_eta = profile.get("max_delivery_time_min", 45)
-        
+
+        # search_menu results carry no delivery-time signal at all — a
+        # neutral score is honest here; a fake specific ETA that might
+        # exceed (or falsely appear to beat) the user's limit is not.
+        if eta is None:
+            return 0.7, "Delivery time not available for this item"
+
         if eta > max_eta:
             return 0.0, "Exceeds delivery time limit"
-            
+
         score_val = 1.0 - (eta / max(max_eta, 1)) * 0.5  # faster is better, up to 1.0
         return score_val, f"Fast delivery in {eta} mins (under your {max_eta} min limit)"
 
 
 class RestaurantRatingFactor(RankingFactor):
     def score(self, meal: Dict[str, Any], profile: Dict[str, Any]) -> Tuple[float, str]:
-        rating = meal.get("rating", 4.0) # default to 4.0 if missing
+        rating = meal.get("rating")
+        if rating is None:
+            return 0.7, "Rating not available for this item"
         score_val = rating / 5.0
         return score_val, f"Highly rated restaurant ({rating}★)"
 
 
 class FoodPopularityFactor(RankingFactor):
     def score(self, meal: Dict[str, Any], profile: Dict[str, Any]) -> Tuple[float, str]:
-        popularity = meal.get("popularity_score", 0.7) # default to 0.7
+        popularity = meal.get("popularity_score")
+        if popularity is None:
+            return 0.7, "Popularity data not available"
         return popularity, "Popular item choice"
 
 
@@ -282,7 +292,7 @@ class RankingEngine:
             protein = meal.get("protein_g", 0)
             calories = meal.get("calories", 0)
             price = meal.get("price", 0)
-            eta = meal.get("delivery_time_min", 0)
+            eta = meal.get("delivery_time_min")  # None when Swiggy gave us no delivery-time signal
             
             target_protein = profile.get("target_protein", profile.get("protein_target", 35))
             target_calories = profile.get("target_calories", profile.get("calorie_target", 650))
@@ -314,7 +324,7 @@ class RankingEngine:
                 tradeoffs.append(f"Priced at Rs {price}, exceeds budget of Rs {budget_max} by Rs {price - budget_max}.")
             if calories > target_calories + 100:
                 tradeoffs.append(f"At {calories} kcal, this exceeds your calorie target by {calories - target_calories} kcal.")
-            if eta > 40:
+            if eta is not None and eta > 40:
                 tradeoffs.append(f"Longer delivery time (~{eta} mins).")
             
             meal_with_score = dict(meal)

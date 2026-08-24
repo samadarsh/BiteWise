@@ -7,6 +7,7 @@ from backend.db.session import get_db
 from backend.db.models import UserProfile
 from backend.users.models import UserProfileSchema, AddressSchema
 from backend.mcp.swiggy_client import ProductionSwiggyClient
+from mcp.mcp_client import SwiggyAuthError, SwiggyMCPError
 
 router = APIRouter(prefix="/me", tags=["User Profile"])
 
@@ -57,7 +58,8 @@ async def get_user_profile(
             activity_level="moderate",
             meal_budget_default=300,
             preferred_meal_times={},
-            spice_tolerance="medium"
+            spice_tolerance="medium",
+            priority_weights={}
         )
         db.add(profile)
         db.commit()
@@ -78,7 +80,8 @@ async def get_user_profile(
         activity_level=profile.activity_level or "moderate",
         meal_budget_default=profile.meal_budget_default or 300,
         preferred_meal_times=parse_dict_field(profile.preferred_meal_times),
-        spice_tolerance=profile.spice_tolerance or "medium"
+        spice_tolerance=profile.spice_tolerance or "medium",
+        priority_weights=parse_dict_field(profile.priority_weights)
     )
 
 @router.put("/profile", response_model=Dict[str, str])
@@ -112,7 +115,8 @@ async def update_user_profile(
     profile.meal_budget_default = profile_data.meal_budget_default
     profile.preferred_meal_times = profile_data.preferred_meal_times
     profile.spice_tolerance = profile_data.spice_tolerance
-    
+    profile.priority_weights = profile_data.priority_weights
+
     db.commit()
     return {"message": "Profile updated successfully."}
 
@@ -130,9 +134,19 @@ async def get_user_addresses(
         return [
             AddressSchema(
                 id=addr.get("id", "addr_unknown"),
-                label=addr.get("label", "Address"),
-                display_text=addr.get("display_text") or addr.get("text") or "Saved Address"
+                # Confirmed against a real Swiggy response: addresses carry
+                # addressTag (user's own label, e.g. "Home"/"Hospital") and
+                # addressCategory (coarser bucket), plus addressLine — not
+                # the generic label/display_text/text keys this originally
+                # assumed (those were never validated against a real payload).
+                label=addr.get("addressTag") or addr.get("addressCategory") or addr.get("label") or "Address",
+                display_text=addr.get("addressLine") or addr.get("display_text") or addr.get("text") or "Saved Address"
             ) for addr in addresses
         ]
+    except (SwiggyAuthError, SwiggyMCPError):
+        # Let it reach main.py's global handler — a clean 401
+        # swiggy_reauth_required (never-connected or expired, same signal)
+        # instead of being flattened into a generic 500 below.
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve saved delivery addresses: {str(e)}")

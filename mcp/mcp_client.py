@@ -124,7 +124,17 @@ class _SwiggyMCPTransport:
 
         headers = {
             "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            # Not shown in Swiggy's own curl examples (those assume an MCP SDK
+            # adds it for you), but their changelog says they implement the
+            # real MCP Streamable HTTP transport spec (modelcontextprotocol.io),
+            # which requires this on every POST — a raw hand-rolled client like
+            # this one has to set it explicitly or the server 406s.
+            "Accept": "application/json, text/event-stream",
+            # Optional per spec (servers must tolerate its absence for back-
+            # compat), but sending it is what a real MCP SDK would do and
+            # costs nothing — https://modelcontextprotocol.io/specification/2025-06-18
+            "MCP-Protocol-Version": "2025-06-18"
         }
 
         request_id = f"mcp_{uuid.uuid4().hex}"
@@ -199,6 +209,59 @@ class _SwiggyMCPTransport:
 
             result = response_json.get("result", {})
             content_list = result.get("content", [])
+
+            # MCP spec (server/tools): tool-level failures (API errors, bad
+            # input, business-logic errors — as opposed to protocol errors,
+            # already handled above) are signaled with result.isError: true,
+            # not by a "success" field anywhere. Missing this meant a real
+            # tool failure fell through to the raw-text-fallback branch below
+            # and got reported back as success=True with the error prose
+            # sitting where address/menu/etc. data was expected.
+            if result.get("isError"):
+                err_text = content_list[0].get("text", "Tool execution failed.") if content_list else "Tool execution failed."
+                self._record_tool_completion(
+                    tool_name, request_id, started_at, success=False,
+                    status_code=response.status_code, error_category="domain_failure",
+                )
+                if "auth" in err_text.lower() or "expire" in err_text.lower() or "token" in err_text.lower():
+                    raise SwiggyAuthError(f"Authentication failed: {err_text}")
+                raise SwiggyMCPError(f"Swiggy MCP error: {err_text}")
+
+            # MCP spec (server/tools, "Structured Content"): structuredContent
+            # is the server-produced, machine-readable result — content[]
+            # is a human/LLM-facing rendering and is NOT guaranteed to be the
+            # JSON-serialized payload (Swiggy's real responses put prose
+            # there, not JSON — only the mock client's fixtures happen to put
+            # JSON in content[0].text, which is why this was never exercised
+            # before real credentials existed).
+            structured = result.get("structuredContent")
+            if isinstance(structured, dict):
+                if "success" in structured:
+                    parsed_res = structured
+                elif "successful" in structured:
+                    # Cart-family tools (get_food_cart, update_food_cart, ...;
+                    # confirmed live) use a different envelope entirely —
+                    # "successful" instead of "success", with the failure
+                    # reason in statusMessage/titleMessage rather than a
+                    # "message"/"error" field. Without this, a real failure
+                    # here (e.g. INVALID_ITEM_IDS_IN_REQUEST) would silently
+                    # report success=True with the error struct as "data".
+                    parsed_res = {
+                        "success": bool(structured.get("successful")),
+                        "data": structured.get("data") if structured.get("successful") else None,
+                        "message": structured.get("titleMessage") or structured.get("statusMessage"),
+                        "raw": structured,
+                    }
+                else:
+                    parsed_res = {"success": True, "data": structured, "message": None}
+                swiggy_meta = self._extract_swiggy_meta(response_json, parsed_res)
+                self._log_deprecation_if_present(tool_name, request_id, swiggy_meta)
+                self._record_tool_completion(
+                    tool_name, request_id, started_at, success=True,
+                    status_code=response.status_code, swiggy_meta=swiggy_meta,
+                )
+                return parsed_res
+
             if not content_list:
                 raise SwiggyMCPError("MCP response returned empty content.")
 
@@ -241,6 +304,16 @@ class _SwiggyMCPTransport:
         except requests.exceptions.RequestException as e:
             # Check for sub-exception containing status code
             status = getattr(e.response, "status_code", None) if hasattr(e, "response") else None
+            # str(e) alone is just requests' generic "406 Client Error: Not
+            # Acceptable for url: ..." — it throws away whatever Swiggy
+            # actually said was wrong. Surface that body (truncated) so a
+            # domain_failure is diagnosable from the error message alone.
+            body_snippet = ""
+            if getattr(e, "response", None) is not None:
+                try:
+                    body_snippet = f" | Swiggy response: {e.response.text[:300]}"
+                except Exception:
+                    pass
             error_category = "upstream_error"
             if status == 401:
                 error_category = "unauthenticated"
@@ -267,7 +340,7 @@ class _SwiggyMCPTransport:
                 status_code=status,
                 error_category=error_category,
             )
-            raise SwiggyMCPError(f"HTTP request to Swiggy MCP failed: {str(e)}", status_code=status) from e
+            raise SwiggyMCPError(f"HTTP request to Swiggy MCP failed: {str(e)}{body_snippet}", status_code=status) from e
 
     def _unpack_and_normalize(self, envelope: Dict[str, Any]) -> Any:
         """Unpacks data or raises a clean client error from Swiggy's response envelope."""
@@ -288,6 +361,16 @@ class _SwiggyMCPTransport:
 
         raise SwiggyMCPError(err_msg)
 
+    @staticmethod
+    def _unwrap_list(data: Any, key: str) -> List[Dict[str, Any]]:
+        """Real Swiggy responses (both Food's structuredContent and
+        Instamart's data field) wrap list payloads under a named key (e.g.
+        {"addresses": [...]}, {"items": [...]}, {"products": [...]}) rather
+        than as a bare list — confirmed against real, non-mock calls."""
+        if isinstance(data, dict) and isinstance(data.get(key), list):
+            return data[key]
+        return data if isinstance(data, list) else []
+
 
 class SwiggyFoodMCPClient(_SwiggyMCPTransport):
     def __init__(self, base_url: Optional[str] = None, token: Optional[str] = None) -> None:
@@ -297,14 +380,14 @@ class SwiggyFoodMCPClient(_SwiggyMCPTransport):
     # Standard aligned Food tools:
     def get_addresses(self) -> List[Dict[str, Any]]:
         res = self.call_tool("get_addresses", {})
-        return self._unpack_and_normalize(res)
+        return self._unwrap_list(self._unpack_and_normalize(res), "addresses")
 
     def search_restaurants(self, addressId: str, query: str, offset: Optional[int] = None) -> List[Dict[str, Any]]:
         args = {"addressId": addressId, "query": query}
         if offset is not None:
             args["offset"] = offset
         res = self.call_tool("search_restaurants", args)
-        return self._unpack_and_normalize(res)
+        return self._unwrap_list(self._unpack_and_normalize(res), "restaurants")
 
     def search_menu(self, addressId: str, query: str, restaurantIdOfAddedItem: Optional[str] = None, vegFilter: Optional[int] = None, offset: Optional[int] = None) -> List[Dict[str, Any]]:
         args = {"addressId": addressId, "query": query}
@@ -315,7 +398,7 @@ class SwiggyFoodMCPClient(_SwiggyMCPTransport):
         if offset is not None:
             args["offset"] = offset
         res = self.call_tool("search_menu", args)
-        return self._unpack_and_normalize(res)
+        return self._unwrap_list(self._unpack_and_normalize(res), "items")
 
     def get_restaurant_menu(self, addressId: str, restaurantId: str, page: Optional[int] = None, pageSize: Optional[int] = None) -> List[Dict[str, Any]]:
         args = {"addressId": addressId, "restaurantId": restaurantId}
@@ -324,7 +407,40 @@ class SwiggyFoodMCPClient(_SwiggyMCPTransport):
         if pageSize is not None:
             args["pageSize"] = pageSize
         res = self.call_tool("get_restaurant_menu", args)
-        return self._unpack_and_normalize(res)
+        data = self._unpack_and_normalize(res)
+        # Real shape nests items two levels deep: {"restaurant": {...},
+        # "categories": [{"title": ..., "items": [...]}]} — not a flat list.
+        if isinstance(data, dict) and isinstance(data.get("categories"), list):
+            flattened: List[Dict[str, Any]] = []
+            for category in data["categories"]:
+                items = category.get("items") if isinstance(category, dict) else None
+                if isinstance(items, list):
+                    flattened.extend(items)
+            return flattened
+        return data if isinstance(data, list) else []
+
+    def get_restaurant_menu_with_metadata(self, addressId: str, restaurantId: str) -> Dict[str, Any]:
+        """
+        Same call as get_restaurant_menu, but also keeps the "restaurant"
+        object (confirmed live: {"id", "name", "isOpen", "avgRating",
+        "deliveryTime", ...}) instead of discarding it — search_menu results
+        carry no open/closed or rating signal at all, so this is how the
+        primary recommendation path can verify a restaurant is actually open
+        before recommending its items, per Swiggy's own guidance.
+        """
+        args = {"addressId": addressId, "restaurantId": restaurantId}
+        res = self.call_tool("get_restaurant_menu", args)
+        data = self._unpack_and_normalize(res)
+        if not isinstance(data, dict):
+            return {"restaurant": {}, "items": []}
+
+        restaurant = data.get("restaurant") if isinstance(data.get("restaurant"), dict) else {}
+        items: List[Dict[str, Any]] = []
+        for category in data.get("categories") or []:
+            cat_items = category.get("items") if isinstance(category, dict) else None
+            if isinstance(cat_items, list):
+                items.extend(cat_items)
+        return {"restaurant": restaurant, "items": items}
 
     def update_food_cart(self, restaurantId: str, cartItems: List[Dict[str, Any]], addressId: str, restaurantName: Optional[str] = None) -> Dict[str, Any]:
         args = {
@@ -335,37 +451,44 @@ class SwiggyFoodMCPClient(_SwiggyMCPTransport):
         if restaurantName is not None:
             args["restaurantName"] = restaurantName
         res = self.call_tool("update_food_cart", args)
-        return self._unpack_and_normalize(res)
+        # data can legitimately be None (e.g. an empty cart) — the return
+        # type promises a dict, so callers can .get() without a null check.
+        return self._unpack_and_normalize(res) or {}
 
     def get_food_cart(self, addressId: str, restaurantName: Optional[str] = None) -> Dict[str, Any]:
         args = {"addressId": addressId}
         if restaurantName is not None:
             args["restaurantName"] = restaurantName
         res = self.call_tool("get_food_cart", args)
-        return self._unpack_and_normalize(res)
+        return self._unpack_and_normalize(res) or {}
 
     def get_food_orders(self, addressId: str, orderCount: Optional[int] = None) -> List[Dict[str, Any]]:
         args = {"addressId": addressId}
         if orderCount is not None:
             args["orderCount"] = orderCount
         res = self.call_tool("get_food_orders", args)
-        return self._unpack_and_normalize(res)
+        return self._unwrap_list(self._unpack_and_normalize(res), "orders")
 
     def fetch_food_coupons(self, restaurantId: str, addressId: str, couponCode: Optional[str] = None) -> List[Dict[str, Any]]:
         args = {"restaurantId": restaurantId, "addressId": addressId}
         if couponCode is not None:
             args["couponCode"] = couponCode
         res = self.call_tool("fetch_food_coupons", args)
-        return self._unpack_and_normalize(res)
+        # "coupons" key unconfirmed against a real non-empty response (the
+        # only live restaurant checked had zero coupons, which omits
+        # structuredContent entirely) — follows the same naming convention as
+        # every other confirmed list tool; _unwrap_list degrades safely to []
+        # either way rather than crashing on a shape mismatch.
+        return self._unwrap_list(self._unpack_and_normalize(res), "coupons")
 
     def apply_food_coupon(self, couponCode: str, addressId: str, cartId: Optional[str] = None) -> Dict[str, Any]:
         args = {"couponCode": couponCode, "addressId": addressId}
         if cartId is not None:
             args["cartId"] = cartId
         res = self.call_tool("apply_food_coupon", args)
-        return self._unpack_and_normalize(res)
+        return self._unpack_and_normalize(res) or {}
 
-    def place_food_order(self, addressId: str, paymentMethod: Optional[str] = "COD") -> Dict[str, Any]:
+    def place_food_order(self, addressId: str, paymentMethod: Optional[str] = "Cash") -> Dict[str, Any]:
         # Lock safety check: staging placement requires both explicit staging mode
         # and an explicit allow flag. Never let either flag alone unlock ordering.
         settings = get_settings()
@@ -382,12 +505,36 @@ class SwiggyFoodMCPClient(_SwiggyMCPTransport):
     def track_food_order(self, orderId: str) -> Dict[str, Any]:
         args = {"orderId": orderId}
         res = self.call_tool("track_food_order", args)
-        return self._unpack_and_normalize(res)
+        return self._unpack_and_normalize(res) or {}
 
     def flush_food_cart(self) -> Dict[str, Any]:
         """Clears the staging cart. Swiggy flush_food_cart takes no tool arguments."""
         res = self.call_tool("flush_food_cart", {})
-        return self._unpack_and_normalize(res)
+        return self._unpack_and_normalize(res) or {}
+
+    def report_error(
+        self,
+        tool: str,
+        error_message: str,
+        domain: Optional[str] = None,
+        flow_description: Optional[str] = None,
+        tool_context: Optional[Dict[str, Any]] = None,
+        user_notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generates a Swiggy-side diagnostic report for a failed tool call —
+        logged server-side on their end regardless of whether the returned
+        mailto: link is ever clicked (per docs)."""
+        args: Dict[str, Any] = {"tool": tool, "errorMessage": error_message}
+        if domain is not None:
+            args["domain"] = domain
+        if flow_description is not None:
+            args["flowDescription"] = flow_description
+        if tool_context is not None:
+            args["toolContext"] = tool_context
+        if user_notes is not None:
+            args["userNotes"] = user_notes
+        res = self.call_tool("report_error", args)
+        return self._unpack_and_normalize(res) or {}
 
 
 class SwiggyInstamartMCPClient(_SwiggyMCPTransport):
@@ -404,17 +551,29 @@ class SwiggyInstamartMCPClient(_SwiggyMCPTransport):
         if offset is not None:
             args["offset"] = offset
         res = self.call_tool("search_products", args)
-        return self._unpack_and_normalize(res)
+        # Confirmed against a real response: unlike Food's tools, Instamart
+        # puts the full documented {success, data, message} envelope as JSON
+        # text in content[0].text (no structuredContent at all) — the
+        # original assumption was actually right here. data.products is a
+        # named-key wrap, same convention as every Food list tool.
+        return self._unwrap_list(self._unpack_and_normalize(res), "products")
 
     def update_cart(self, selectedAddressId: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Replaces the entire Instamart cart with the given [{spinId, quantity}, ...] items."""
         args = {"selectedAddressId": selectedAddressId, "items": items}
         res = self.call_tool("update_cart", args)
-        return self._unpack_and_normalize(res)
+        return self._unpack_and_normalize(res) or {}
 
     def get_cart(self) -> Dict[str, Any]:
         res = self.call_tool("get_cart", {})
-        return self._unpack_and_normalize(res)
+        return self._unpack_and_normalize(res) or {}
+
+    def clear_cart(self) -> Dict[str, Any]:
+        """Confirmed live: update_cart(items=[]) is rejected ("items array is
+        required and must contain at least one item") — clearing the cart
+        requires this dedicated tool instead."""
+        res = self.call_tool("clear_cart", {})
+        return self._unpack_and_normalize(res) or {}
 
     def checkout(self, addressId: str, paymentMethod: Optional[str] = "COD") -> Dict[str, Any]:
         # Same dual-flag safety lock as Food's place_food_order — staging mode alone,
@@ -439,9 +598,9 @@ class SwiggyInstamartMCPClient(_SwiggyMCPTransport):
         if activeOnly is not None:
             args["activeOnly"] = activeOnly
         res = self.call_tool("get_orders", args)
-        return self._unpack_and_normalize(res)
+        return self._unpack_and_normalize(res) or {}
 
     def track_order(self, orderId: str, lat: float, lng: float) -> Dict[str, Any]:
         args = {"orderId": orderId, "lat": lat, "lng": lng}
         res = self.call_tool("track_order", args)
-        return self._unpack_and_normalize(res)
+        return self._unpack_and_normalize(res) or {}

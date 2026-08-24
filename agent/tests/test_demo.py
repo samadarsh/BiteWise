@@ -38,6 +38,37 @@ def test_demo_endpoints_forbidden_in_production():
         else:
             os.environ.pop("USE_MOCK_MCP", None)
 
+def test_demo_endpoints_forbidden_with_app_env_development_and_real_mode():
+    """Regression: APP_ENV=development (the default on any local dev machine)
+    must not enable demo seed/reset when USE_MOCK_MCP=false — that combo is
+    exactly what real-mode testing from localhost looks like, and demo
+    endpoints fabricate data that must never mix with a real Swiggy account."""
+    from backend.auth.sessions import get_current_user_id
+
+    original_app_env = os.environ.get("APP_ENV")
+    original_use_mock = os.environ.get("USE_MOCK_MCP")
+
+    os.environ["APP_ENV"] = "development"
+    os.environ["USE_MOCK_MCP"] = "false"
+
+    app.dependency_overrides[get_current_user_id] = lambda: "user_test_dev_real"
+
+    try:
+        with TestClient(app) as client:
+            assert client.post("/demo/reset").status_code == 403
+            assert client.post("/demo/seed").status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_current_user_id, None)
+        if original_app_env:
+            os.environ["APP_ENV"] = original_app_env
+        else:
+            os.environ.pop("APP_ENV", None)
+        if original_use_mock:
+            os.environ["USE_MOCK_MCP"] = original_use_mock
+        else:
+            os.environ.pop("USE_MOCK_MCP", None)
+
+
 def test_demo_reset_and_seed_data_flow():
     """Verify that seeding populates all tables, and resetting wipes them clean."""
     original_key = os.environ.get("ENCRYPTION_KEY")

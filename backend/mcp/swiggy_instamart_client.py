@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional, Union
-from mcp.mcp_client import SwiggyInstamartMCPClient
+from mcp.mcp_client import SwiggyInstamartMCPClient, SwiggyAuthError
 from mcp.instamart_mock import MockSwiggyInstamartMCP
 from backend.db.session import SessionLocal
 from backend.db.models import SwiggyToken
@@ -28,7 +28,7 @@ class ProductionSwiggyInstamartClient:
         try:
             token_record = db.query(SwiggyToken).filter(SwiggyToken.user_id == self.user_id).first()
             if not token_record:
-                raise ValueError(f"No Swiggy token registered for user: {self.user_id}")
+                raise SwiggyAuthError("Connect your Swiggy account first to use this feature.")
 
             decrypted_token = decrypt_token(token_record.encrypted_access_token)
 
@@ -55,6 +55,10 @@ class ProductionSwiggyInstamartClient:
     def get_cart(self) -> Dict[str, Any]:
         client = self._get_initialized_client()
         return client.get_cart()
+
+    def clear_cart(self) -> Dict[str, Any]:
+        client = self._get_initialized_client()
+        return client.clear_cart()
 
     def checkout(self, addressId: str, paymentMethod: str = "COD") -> Dict[str, Any]:
         client = self._get_initialized_client()

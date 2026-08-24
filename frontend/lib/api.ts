@@ -5,12 +5,23 @@ export const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:800
  */
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** Machine-readable error identifier from the backend (e.g. "swiggy_reauth_required").
+   * Prefer this over `status` for branching — 401 alone is ambiguous with the
+   * generic "not logged into BiteWise" case. */
+  errorCode?: string;
+  constructor(message: string, status: number, errorCode?: string) {
     super(message);
     this.status = status;
+    this.errorCode = errorCode;
     this.name = "ApiError";
   }
 }
+
+export function isSwiggyReauthError(err: unknown): boolean {
+  return err instanceof ApiError && err.errorCode === "swiggy_reauth_required";
+}
+
+export const SWIGGY_REAUTH_MESSAGE = 'Your Swiggy connection has expired — click "Connect Swiggy" in the header to reconnect.';
 
 /**
  * Standard fetch helper that attaches cookies and parses JSON.
@@ -41,9 +52,11 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 
   if (!response.ok) {
     let errMsg = "An unexpected error occurred.";
+    let errorCode: string | undefined;
     try {
       const data = await response.json();
       errMsg = data.detail || data.message || errMsg;
+      errorCode = data.error_code;
     } catch {
       try {
         errMsg = await response.text() || errMsg;
@@ -51,7 +64,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
         // Fallback
       }
     }
-    throw new ApiError(errMsg, response.status);
+    throw new ApiError(errMsg, response.status, errorCode);
   }
 
   return response.json() as Promise<T>;
@@ -76,6 +89,7 @@ export interface UserProfile {
   spice_tolerance: string;
   daily_calories?: number;
   daily_protein?: number;
+  priority_weights?: Record<string, number>;
 }
 
 export interface Address {
@@ -97,6 +111,7 @@ export interface OrderSessionSummary {
   restaurant_name: string | null;
   meal_name: string | null;
   total: number | null;
+  mcp_mode: "mock" | "live" | null;
 }
 
 export interface RecommendationMeal {
@@ -104,7 +119,7 @@ export interface RecommendationMeal {
   name: string;
   restaurant: string;
   price: number;
-  eta: string;
+  eta?: string;
   protein: string;
   calories: string;
   score: number;
@@ -127,26 +142,31 @@ export interface RecommendationResponse {
   status: string;
   results: {
     success: boolean;
-    recommendation: {
+    // Present when success is false (e.g. error_type "no_candidates") —
+    // the pipeline's own explanation for why nothing matched, distinct
+    // from the generic relaxation_options suggestions below.
+    message?: string;
+    error_type?: string;
+    recommendation?: {
       item_id: string;
       restaurant_id: string;
       restaurant_name: string;
       name?: string;
       item_name?: string;
       price: number;
-      delivery_time_min: number;
+      delivery_time_min: number | null;
       protein_g: number;
       calories?: number;
       [key: string]: unknown;
     };
-    recommendations: Array<{
+    recommendations?: Array<{
       item_id: string;
       restaurant_id: string;
       restaurant_name: string;
       name?: string;
       item_name?: string;
       price: number;
-      delivery_time_min: number;
+      delivery_time_min: number | null;
       protein_g: number;
       calories?: number;
       match_score?: number;
@@ -247,7 +267,13 @@ export interface CoachNextMealResponse {
   target_met?: boolean;
   status?: string;
   today_status?: CoachStatusResponse;
-  results?: RecommendationResponse;
+  // /coach/next-meal puts the pipeline's own flat result dict directly under
+  // "results" (backend/coach/routes.py) — one level shallower than
+  // RecommendationResponse itself, which wraps that same shape under its own
+  // "results" key for /recommendations/search. Reusing the inner shape here
+  // (not the full RecommendationResponse) keeps the two endpoints' actual
+  // response shapes distinct instead of conflating them.
+  results?: RecommendationResponse["results"];
 }
 
 export interface WeightEntry {
@@ -783,10 +809,13 @@ export const api = {
   },
 
   /**
-   * Simulates/previews building the Instamart cart based on unpurchased items.
+   * Previews building the Instamart cart based on unpurchased items. addressId
+   * is required for real (non-mock) catalog pricing — without it, real mode
+   * falls back to the same generic estimate an unmatched item gets.
    */
-  async getCartPreview(): Promise<CartPreview> {
-    return apiFetch<CartPreview>("/grocery-list/cart-preview", {
+  async getCartPreview(addressId?: string): Promise<CartPreview> {
+    const qs = addressId ? `?address_id=${encodeURIComponent(addressId)}` : "";
+    return apiFetch<CartPreview>(`/grocery-list/cart-preview${qs}`, {
       method: "POST"
     });
   },
@@ -951,6 +980,11 @@ export interface BiteWiseUser {
   avatar_url: string | null;
   auth_provider: string;
   swiggy_connected: boolean;
+  /** Which Swiggy MCP backend is actually being hit — "mock" (default, safe,
+   * no real Swiggy account touched) or "live" (real Swiggy staging/production,
+   * gated behind USE_MOCK_MCP/SWIGGY_ENV/ALLOW_PLACE_ORDER). Only populated by
+   * GET /auth/me today. */
+  mcp_mode?: "mock" | "live";
   created_at: string | null;
   profile: UserProfile | null;
 }
@@ -962,6 +996,10 @@ export interface AuthStatusResponse {
 
 export interface GoogleLoginPayload {
   id_token?: string;
+  // Popup-based OAuth2 implicit flow (google.accounts.oauth2.initTokenClient)
+  // — the fallback path when the FedCM-based one-tap flow's origin
+  // validation rejects an origin the classic flow accepts (e.g. localhost).
+  access_token?: string;
   email?: string;
   name?: string;
   avatar_url?: string;

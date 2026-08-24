@@ -112,7 +112,7 @@ function NutriOrderGate({ children }: { children: React.ReactNode }) {
         >
           <span className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-nutri animate-pulse shrink-0" />
-            Order in progress{selectedMeal ? ` — ${selectedMeal.name}` : ""} · ETA {selectedMeal?.eta || "25 mins"}
+            Order in progress{selectedMeal ? ` — ${selectedMeal.name}` : ""}{selectedMeal?.eta ? ` · ETA ${selectedMeal.eta}` : ""}
           </span>
           <span className="text-nutri shrink-0">View tracking →</span>
         </Link>

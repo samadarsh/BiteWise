@@ -238,3 +238,71 @@ def test_order_success_autologging():
             os.environ["ENCRYPTION_KEY"] = original_key
         else:
             os.environ.pop("ENCRYPTION_KEY", None)
+
+
+def test_search_surfaces_pipeline_crash_as_502_not_fake_relaxation_options():
+    """A genuine pipeline crash (error_type: internal_error/upstream_error)
+    must reach the client as a real error — previously any failure, crash
+    included, got silently relabeled as "no strict matches, try relaxing a
+    constraint", hiding the actual bug from both the user and any debugging."""
+    from unittest.mock import patch
+
+    original_key = os.environ.get("ENCRYPTION_KEY")
+    os.environ["ENCRYPTION_KEY"] = secrets.token_hex(32)
+    os.environ["USE_MOCK_MCP"] = "true"
+    os.environ["APP_ENV"] = "development"
+
+    try:
+        with TestClient(app) as client:
+            client.post("/auth/demo-login")
+            start = client.post("/orders/session/start")
+            session_id = start.json()["session_id"]
+            client.post(f"/orders/session/{session_id}/select-address", params={"address_id": "addr_home"})
+
+            with patch("agent.pipeline.NutriOrderPipeline.run_pipeline") as mock_run:
+                mock_run.return_value = {
+                    "success": False,
+                    "error_type": "internal_error",
+                    "message": "An unexpected error occurred: unsupported operand type(s) for /: 'str' and 'float'",
+                }
+                res = client.post("/recommendations/search", json={"session_id": session_id, "query": "grilled chicken"})
+
+            assert res.status_code == 502
+            assert "unsupported operand type" in res.json()["detail"]
+    finally:
+        if original_key:
+            os.environ["ENCRYPTION_KEY"] = original_key
+        else:
+            os.environ.pop("ENCRYPTION_KEY", None)
+
+
+def test_search_rejects_empty_query_instead_of_silently_substituting_one():
+    """Regression: agent/pipeline.py's intent parser treats a falsy query as
+    absent and substitutes a generic "high protein" search — clicking "Find
+    Recommended Meal" with an empty textarea silently returned real
+    recommendations instead of prompting the user to describe what they want."""
+    original_key = os.environ.get("ENCRYPTION_KEY")
+    os.environ["ENCRYPTION_KEY"] = secrets.token_hex(32)
+    os.environ["USE_MOCK_MCP"] = "true"
+    os.environ["APP_ENV"] = "development"
+
+    try:
+        with TestClient(app) as client:
+            client.post("/auth/demo-login")
+            start = client.post("/orders/session/start")
+            session_id = start.json()["session_id"]
+            client.post(f"/orders/session/{session_id}/select-address", params={"address_id": "addr_home"})
+
+            res_empty = client.post("/recommendations/search", json={"session_id": session_id, "query": ""})
+            assert res_empty.status_code == 400
+
+            res_whitespace = client.post("/recommendations/search", json={"session_id": session_id, "query": "   "})
+            assert res_whitespace.status_code == 400
+
+            res_valid = client.post("/recommendations/search", json={"session_id": session_id, "query": "chicken salad"})
+            assert res_valid.status_code == 200
+    finally:
+        if original_key:
+            os.environ["ENCRYPTION_KEY"] = original_key
+        else:
+            os.environ.pop("ENCRYPTION_KEY", None)

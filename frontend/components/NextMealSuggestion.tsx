@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { api, RecommendationMeal } from "../lib/api";
+import { api, RecommendationMeal, isSwiggyReauthError, SWIGGY_REAUTH_MESSAGE } from "../lib/api";
+import { useAuth } from "../lib/auth-context";
 
 interface NextMealSuggestionProps {
   onSelectMeal: (meal: RecommendationMeal) => void;
@@ -7,6 +8,7 @@ interface NextMealSuggestionProps {
 }
 
 export default function NextMealSuggestion({ onSelectMeal }: NextMealSuggestionProps) {
+  const { refreshAuth } = useAuth();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [targetMet, setTargetMet] = useState(false);
@@ -30,13 +32,13 @@ export default function NextMealSuggestion({ onSelectMeal }: NextMealSuggestionP
       setMessage(res.message);
       setTargetMet(res.target_met || false);
 
-      const rawCandidates = res.results?.results?.recommendations || [];
+      const rawCandidates = res.results?.recommendations || [];
       const mapped = rawCandidates.map((c) => ({
         id: c.item_id,
         name: c.name || c.item_name || "Recommended meal",
         restaurant: c.restaurant_name || "Unknown Restaurant",
         price: c.price,
-        eta: `${c.delivery_time_min || 30} mins`,
+        eta: c.delivery_time_min != null ? `${c.delivery_time_min} mins` : (c.delivery_time_spoken as string | undefined),
         protein: `${c.protein_g || 0}g`,
         calories: c.calories ? `${c.calories} kcal` : "N/A",
         score: c.match_score || 80,
@@ -47,12 +49,17 @@ export default function NextMealSuggestion({ onSelectMeal }: NextMealSuggestionP
         is_estimated: c.is_estimated !== false,
         restaurant_id: c.restaurant_id,
         item_id: c.item_id,
-        distance_km: c.distance_km as number | undefined,
+        distance_km: (c.distance_km ?? undefined) as number | undefined,
       }));
       setSuggestions(mapped);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setMessage(`Coach inquiry failed: ${msg}`);
+      if (isSwiggyReauthError(err)) {
+        refreshAuth();
+        setMessage(SWIGGY_REAUTH_MESSAGE);
+      } else {
+        const msg = err instanceof Error ? err.message : String(err);
+        setMessage(`Coach inquiry failed: ${msg}`);
+      }
     } finally {
       setLoading(false);
     }

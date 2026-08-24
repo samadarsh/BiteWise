@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useNutriOrder } from "../../../../lib/nutriorder-context";
+import { useNutriOrder, CONFIRMED_NO_ID_SENTINEL } from "../../../../lib/nutriorder-context";
 import { api, CoachStatusResponse } from "../../../../lib/api";
 import RecommendationCard from "../../../../components/RecommendationCard";
 import RelaxationOptions from "../../../../components/RelaxationOptions";
@@ -10,6 +10,13 @@ import DemoStoryBanner from "../../../../components/DemoStoryBanner";
 import LoadingSkeleton from "../../../../components/LoadingSkeleton";
 import { SwiggyConnectionCard } from "../../../../components/SwiggyConnectionCard";
 import FeedbackModal from "../../../../components/FeedbackModal";
+
+function truncateAddressText(text: string, max = 60): string {
+  // Native <select> dropdowns size their open popup to the widest <option>
+  // text and can't be constrained with CSS — real Swiggy addresses run 100+
+  // chars, so the popup balloons unless the option text itself is capped.
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
 
 function Spinner({ className = "" }: { className?: string }) {
   return (
@@ -50,6 +57,7 @@ export default function NutriOrderOrderPage() {
     searchLoading,
     handleQuerySearch,
     relaxationOptions,
+    noResultsMessage,
     handleRelaxationApply,
     recommendations,
     selectedMeal,
@@ -93,11 +101,13 @@ export default function NutriOrderOrderPage() {
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 border-b border-border pb-4 sm:pb-6">
             <div>
               <span className="text-[10px] sm:text-xs bg-nutri/10 text-nutri border border-nutri/20 font-bold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full uppercase tracking-wider">Order In Progress</span>
-              <h2 className="text-lg sm:text-2xl font-bold mt-2 text-text">Tracking {placedOrderId}</h2>
+              <h2 className="text-lg sm:text-2xl font-bold mt-2 text-text">
+                {placedOrderId === CONFIRMED_NO_ID_SENTINEL ? "Order Confirmed" : `Tracking ${placedOrderId}`}
+              </h2>
             </div>
             <div className="sm:text-right">
               <p className="text-[10px] sm:text-xs text-muted">Estimated Delivery Time</p>
-              <p className="text-xl sm:text-2xl font-bold text-nutri">{selectedMeal?.eta || "25 mins"}</p>
+              <p className="text-xl sm:text-2xl font-bold text-nutri">{selectedMeal?.eta || "Not available"}</p>
             </div>
           </div>
 
@@ -199,7 +209,7 @@ export default function NutriOrderOrderPage() {
                 </option>
                 {addresses.map((addr) => (
                   <option key={addr.id} value={addr.id}>
-                    {addr.label} — {addr.display_text}
+                    {addr.label} — {truncateAddressText(addr.display_text)}
                   </option>
                 ))}
               </select>
@@ -240,7 +250,7 @@ export default function NutriOrderOrderPage() {
               </button>
             ))}
           </div>
-          <button type="submit" disabled={searchLoading || !selectedAddress} className="w-full bg-nutri hover:brightness-105 disabled:opacity-50 disabled:cursor-not-allowed text-nutri-contrast font-bold py-2.5 rounded-xl transition text-sm flex items-center justify-center gap-2 shadow-md">
+          <button type="submit" disabled={searchLoading || !selectedAddress || !searchQuery.trim()} className="w-full bg-nutri hover:brightness-105 disabled:opacity-50 disabled:cursor-not-allowed text-nutri-contrast font-bold py-2.5 rounded-xl transition text-sm flex items-center justify-center gap-2 shadow-md">
             {searchLoading ? (
               <>
                 <Spinner className="h-4 w-4 text-nutri-contrast" />
@@ -398,8 +408,10 @@ export default function NutriOrderOrderPage() {
             <LoadingSkeleton />
           ) : recommendations.length === 0 ? (
             <div className="border border-dashed border-border-strong rounded-xl flex flex-col items-center justify-center p-8 text-center text-subtle gap-2">
-              <span className="text-3xl">🍲</span>
-              <p className="text-sm">Select a delivery address, then describe what you feel like eating.</p>
+              <span className="text-3xl">{noResultsMessage ? "🔍" : "🍲"}</span>
+              <p className="text-sm">
+                {noResultsMessage || "Select a delivery address, then describe what you feel like eating."}
+              </p>
             </div>
           ) : (
             <div className="flex flex-col gap-4">

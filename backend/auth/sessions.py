@@ -15,8 +15,7 @@ LEGACY_SESSION_COOKIE = APIKeyCookie(name="nutriorder_session", auto_error=False
 
 def should_use_secure_cookies() -> bool:
     settings = get_settings()
-    is_local = settings.use_mock_mcp or settings.app_env == "development"
-    return not is_local
+    return not settings.use_mock_mcp
 
 
 def _get_session_secret() -> bytes:
@@ -148,7 +147,7 @@ async def get_current_user_id(request: Request, strict: bool = False) -> str:
     and tests keep working without a real login.
     """
     settings = get_settings()
-    is_mock = settings.use_mock_mcp or settings.app_env == "development"
+    is_mock = settings.use_mock_mcp
 
     cookie_val = request.cookies.get("bitewise_session") or request.cookies.get("nutriorder_session")
 

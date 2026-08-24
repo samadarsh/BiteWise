@@ -19,6 +19,7 @@ class UserProfileSchema(BaseModel):
     meal_budget_default: int = Field(300, ge=50, le=2000)
     preferred_meal_times: dict = Field(default_factory=dict)
     spice_tolerance: str = Field("medium", pattern="^(low|medium|high)$")
+    priority_weights: dict = Field(default_factory=dict)
 
 class AddressSchema(BaseModel):
     id: str
