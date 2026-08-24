@@ -108,6 +108,17 @@ def init_db():
                 if "bulk_use_count" not in pantry_columns:
                     conn.execute(text("ALTER TABLE pantry_items ADD COLUMN bulk_use_count INTEGER DEFAULT 0"))
 
+    # 3. Reap long-abandoned guest accounts (no scheduler infra exists yet —
+    # a server restart is the simplest trigger available that still stops
+    # unbounded growth from POST /auth/guest, which has no TTL otherwise).
+    from backend.db.session import SessionLocal
+    from backend.auth.cleanup import reap_stale_guest_accounts
+    cleanup_db = SessionLocal()
+    try:
+        reap_stale_guest_accounts(cleanup_db)
+    finally:
+        cleanup_db.close()
+
 # Security headers — CSP is deliberately not set here: this API also serves
 # FastAPI's own /docs and /redoc pages, which load their assets from a CDN,
 # so a strict default-src would break them without path-specific tuning.
