@@ -486,6 +486,26 @@ export default function LandingPage() {
             </Reveal>
           ))}
         </div>
+
+        {/* NutriOrder Step-by-Step */}
+        <div className="mt-14">
+          <Reveal>
+            <p className="text-xs font-black uppercase tracking-widest text-nutri">How it works</p>
+          </Reveal>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {NUTRIORDER_STEPS.map((s, i) => (
+              <Reveal key={s.step} delay={i * 0.05}>
+                <div className="flex gap-3 rounded-xl border border-border-strong bg-surface p-4 h-full">
+                  <span className="shrink-0 text-lg font-black text-nutri/40">{s.step}</span>
+                  <div>
+                    <h4 className="text-sm font-bold text-text">{s.title}</h4>
+                    <p className="mt-1 text-xs leading-5 text-muted">{s.desc}</p>
+                  </div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* Divider */}
@@ -559,6 +579,26 @@ export default function LandingPage() {
               </div>
             </Reveal>
           ))}
+        </div>
+
+        {/* SmartPantry Step-by-Step */}
+        <div className="mt-14">
+          <Reveal>
+            <p className="text-xs font-black uppercase tracking-widest text-pantry">How it works</p>
+          </Reveal>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {SMARTPANTRY_STEPS.map((s, i) => (
+              <Reveal key={s.step} delay={i * 0.05}>
+                <div className="flex gap-3 rounded-xl border border-border-strong bg-surface-2 p-4 h-full">
+                  <span className="shrink-0 text-lg font-black text-pantry/40">{s.step}</span>
+                  <div>
+                    <h4 className="text-sm font-bold text-text">{s.title}</h4>
+                    <p className="mt-1 text-xs leading-5 text-muted">{s.desc}</p>
+                  </div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
         </div>
       </section>
 

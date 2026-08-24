@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, ShieldCheck, Clock, Tag, Sparkles, CheckCircle2, Star, Flame, Dumbbell } from "lucide-react";
+import { ShieldCheck, Clock, Tag, Sparkles, CheckCircle2, Star, Flame, Dumbbell } from "lucide-react";
 
 export function NutriOrderShowcase() {
   const [activeTab, setActiveTab] = useState<"ranking" | "checkout">("ranking");

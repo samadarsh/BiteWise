@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
-import { Package, Utensils, ShoppingBag, AlertTriangle, CheckCircle2, Clock, Layers } from "lucide-react";
+import { ShoppingBag, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 export function SmartPantryShowcase() {
   const [activeView, setActiveView] = useState<"pantry" | "recipes" | "grocery">("pantry");
