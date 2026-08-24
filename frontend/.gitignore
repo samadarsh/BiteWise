@@ -12,9 +12,11 @@
 
 # testing
 /coverage
+/.qa-screenshots
 
 # next.js
 /.next/
+/.next-*/
 /out/
 
 # production

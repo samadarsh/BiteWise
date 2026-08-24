@@ -1,6 +1,11 @@
 import { chromium } from "playwright";
 
-const OUT = "/private/tmp/claude-501/-Users-samadarsh-Documents-MY-PROJECTS-nutriorderai/4bd99f5a-9d4b-4c31-b48d-5feb4102f53a/scratchpad/shots";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import { mkdirSync } from "fs";
+
+const OUT = join(dirname(fileURLToPath(import.meta.url)), ".qa-screenshots");
+mkdirSync(OUT, { recursive: true });
 const results = [];
 const ok = (name, cond, detail = "") => {
   const line = `${cond ? "PASS" : "FAIL"}  ${name}${detail ? " — " + detail : ""}`;
@@ -278,6 +283,11 @@ await page.locator('aside nav a[href="/app/smartpantry/pantry"]').click();
 await page.waitForURL("**/app/smartpantry/pantry", { timeout: 10000 });
 await page.waitForTimeout(1200);
 ok("pantry page renders", await page.locator("text=Pantry Inventory").isVisible().catch(() => false));
+
+// Mock/live mode badge — this suite always runs against USE_MOCK_MCP=true
+// (the default), so it must always read "Mock", never "Live".
+ok("header shows Mock mode badge (USE_MOCK_MCP=true by default)", await page.locator("span:text-is('Mock')").first().isVisible().catch(() => false));
+ok("header does not show Live mode badge in mock mode", !(await page.locator("span:text-is('Live')").first().isVisible().catch(() => false)));
 
 ok("cook page redirects to kitchen (no longer a standalone route)", await (async () => {
   await page.goto("http://localhost:3000/app/smartpantry/cook", { waitUntil: "networkidle" });

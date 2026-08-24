@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Alternate build output dirs (e.g. NEXT_DIST_DIR=.next-demo for a
+    // second dev-server instance run alongside the default one).
+    ".next-*/**",
   ]),
 ]);
 
