@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import anthropic
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List
 from backend.db.session import get_db
@@ -14,6 +15,9 @@ from backend.coach.models import (
 )
 from backend.coach import service
 from backend.db.models import OrderSession, DeliveryAddress
+from mcp.mcp_client import SwiggyAuthError
+from agent.food_vision import analyze_food_image, FoodScanResult
+from config.settings import get_settings
 
 router = APIRouter(prefix="/coach", tags=["Health Coach"])
 
@@ -41,6 +45,40 @@ async def add_manual_nutrition_log(
         return entry
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save manual log: {str(e)}")
+
+@router.post("/scan-food-image", response_model=FoodScanResult)
+async def scan_food_image(
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id),
+    _rate_limit = Depends(mutating_rate_limiter)
+):
+    """
+    Analyzes a food photo via Claude vision and returns a nutrition estimate
+    for review — does NOT write to the database. The client saves a
+    reviewed/edited result through the existing POST /manual-entry with
+    source="image_scan" (see ManualEntrySchema).
+    """
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        raise HTTPException(status_code=503, detail="Food scanning is not configured on this server.")
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image.")
+
+    image_bytes = await file.read()
+
+    try:
+        return analyze_food_image(image_bytes, file.content_type)
+    except anthropic.AuthenticationError:
+        raise HTTPException(status_code=503, detail="Food scanning is misconfigured (invalid API key).")
+    except anthropic.RateLimitError:
+        raise HTTPException(status_code=429, detail="Food scanning is rate-limited right now — try again shortly.")
+    except anthropic.BadRequestError as e:
+        raise HTTPException(status_code=400, detail=f"Couldn't analyze that image: {e.message}")
+    except anthropic.APIStatusError as e:
+        raise HTTPException(status_code=502, detail=f"Food scanning service error: {e.message}")
+    except anthropic.APIConnectionError:
+        raise HTTPException(status_code=502, detail="Couldn't reach the food scanning service. Try again.")
 
 @router.get("/history", response_model=List[NutritionEntrySchema])
 async def get_logged_meals_history(
@@ -174,6 +212,13 @@ async def recommend_next_coach_meal(
             skip_cart_update=True
         )
 
+        if results.get("auth_required"):
+            # Same as recommendations/routes.py: the pipeline caught
+            # SwiggyAuthError internally and returned it as a normal dict —
+            # raise it so it reaches the global handler in main.py instead of
+            # being buried inside a 200 response.
+            raise SwiggyAuthError(results.get("message", "Your Swiggy session has expired. Please re-authenticate."))
+
         return {
             "success": True,
             "message": message,
@@ -181,5 +226,7 @@ async def recommend_next_coach_meal(
             "today_status": today_status,
             "results": results
         }
+    except SwiggyAuthError:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate coach suggestions: {str(e)}")

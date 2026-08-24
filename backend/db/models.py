@@ -160,9 +160,14 @@ class NutritionEntry(Base):
     protein_g = Column(Float, nullable=False)
     carbs_g = Column(Float, nullable=True)
     fat_g = Column(Float, nullable=True)
-    source = Column(String, default="manual", nullable=False)  # "manual" or "order"
+    source = Column(String, default="manual", nullable=False)  # "manual", "order", or "image_scan"
     confidence = Column(Float, default=1.0, nullable=False)
     is_estimated = Column(Boolean, default=False, nullable=False)
+    # Flexible, best-effort dict (e.g. {"sodium": "~600mg", "fiber": "~4g"}) —
+    # deliberately not per-nutrient columns; vision-based micronutrient
+    # estimation from a single photo is rough by nature, so this stays a
+    # loose blob rather than a schema promising precision it can't deliver.
+    micronutrients = Column(JSON, nullable=True)
     order_session_id = Column(String, ForeignKey("order_sessions.id"), unique=True, nullable=True)
     created_at = Column(DateTime, default=func.now(), nullable=False)
 

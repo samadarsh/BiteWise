@@ -91,6 +91,13 @@ def init_db():
                 if "mcp_mode" not in sess_columns:
                     conn.execute(text("ALTER TABLE order_sessions ADD COLUMN mcp_mode VARCHAR"))
 
+        # Idempotent column check for nutrition_entries (runs independently of user_profiles)
+        if inspector.has_table("nutrition_entries"):
+            nutrition_columns = [col["name"] for col in inspector.get_columns("nutrition_entries")]
+            with engine.begin() as conn:
+                if "micronutrients" not in nutrition_columns:
+                    conn.execute(text("ALTER TABLE nutrition_entries ADD COLUMN micronutrients JSON"))
+
         # Idempotent column check for pantry_items (runs independently of user_profiles)
         if inspector.has_table("pantry_items"):
             pantry_columns = [col["name"] for col in inspector.get_columns("pantry_items")]
@@ -118,6 +125,28 @@ def init_db():
         reap_stale_guest_accounts(cleanup_db)
     finally:
         cleanup_db.close()
+
+# Request body size limit — a JSON API has no legitimate reason to accept a
+# multi-megabyte body; this is a cheap guard against obviously-abusive
+# requests before they reach any route handler. The one exception is the
+# food-image-scan upload, where real phone photos routinely exceed 2MB.
+MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024  # 2MB
+MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB
+IMAGE_UPLOAD_PATHS = {"/coach/scan-food-image"}
+
+
+@app.middleware("http")
+async def limit_request_body_size(request: Request, call_next):
+    limit = MAX_IMAGE_UPLOAD_BYTES if request.url.path in IMAGE_UPLOAD_PATHS else MAX_REQUEST_BODY_BYTES
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > limit:
+                return JSONResponse(status_code=413, content={"detail": "Request body too large."})
+        except ValueError:
+            pass
+    return await call_next(request)
+
 
 # Security headers — CSP is deliberately not set here: this API also serves
 # FastAPI's own /docs and /redoc pages, which load their assets from a CDN,

@@ -8,6 +8,13 @@ class ManualEntrySchema(BaseModel):
     protein_g: float = Field(..., ge=0)
     carbs_g: Optional[float] = Field(default=None, ge=0)
     fat_g: Optional[float] = Field(default=None, ge=0)
+    # Defaults reproduce the pre-existing manual-entry behavior exactly —
+    # only a caller that explicitly overrides these (e.g. saving a reviewed
+    # food-image-scan result) sees anything different.
+    source: str = Field(default="manual")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    is_estimated: bool = Field(default=False)
+    micronutrients: Optional[dict] = Field(default=None)
 
 class CoachStatusResponse(BaseModel):
     target_calories: float
@@ -30,6 +37,7 @@ class NutritionEntrySchema(BaseModel):
     source: str
     confidence: float
     is_estimated: bool
+    micronutrients: Optional[dict] = None
     order_session_id: Optional[str] = None
     created_at: datetime
 

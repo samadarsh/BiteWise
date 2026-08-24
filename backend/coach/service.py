@@ -76,14 +76,15 @@ def add_manual_entry(db: Session, user_id: str, payload: ManualEntrySchema) -> N
         user_id=user_id,
         entry_date=today_date,
         meal_name=payload.meal_name,
-        restaurant_name="Manual Entry",
+        restaurant_name="Manual Entry" if payload.source == "manual" else None,
         calories=payload.calories,
         protein_g=payload.protein_g,
         carbs_g=payload.carbs_g,
         fat_g=payload.fat_g,
-        source="manual",
-        confidence=1.0,
-        is_estimated=False,
+        source=payload.source,
+        confidence=payload.confidence,
+        is_estimated=payload.is_estimated,
+        micronutrients=payload.micronutrients,
         order_session_id=None
     )
     db.add(entry)

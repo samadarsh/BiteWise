@@ -28,6 +28,7 @@ class Settings:
     session_secret: str = ""
     cors_allowed_origins: List[str] = field(default_factory=list)
     sentry_dsn: str = ""
+    anthropic_api_key: str = ""
 
 def get_settings() -> Settings:
     cors_origins_str = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
@@ -54,5 +55,6 @@ def get_settings() -> Settings:
         google_client_id=os.getenv("GOOGLE_CLIENT_ID", ""),
         session_secret=os.getenv("SESSION_SECRET", ""),
         cors_allowed_origins=origins,
-        sentry_dsn=os.getenv("SENTRY_DSN", "")
+        sentry_dsn=os.getenv("SENTRY_DSN", ""),
+        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "")
     )

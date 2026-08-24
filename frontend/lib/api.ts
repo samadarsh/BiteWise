@@ -40,11 +40,16 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     extraHeaders["x-user-id"] = sessionToken;
   }
 
+  // A FormData body (file uploads) must NOT get an explicit Content-Type —
+  // the browser needs to set multipart/form-data itself, boundary included;
+  // overriding it here would break form parsing on the backend.
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+
   const response = await fetch(url, {
     ...options,
     credentials: "include", // Send and receive session cookies
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...extraHeaders,
       ...options.headers,
     },
@@ -257,8 +262,22 @@ export interface NutritionEntry {
   source: string;
   confidence: number;
   is_estimated: boolean;
+  micronutrients?: Record<string, string> | null;
   order_session_id?: string | null;
   created_at: string;
+}
+
+export interface FoodScanResult {
+  food_name: string;
+  description: string;
+  estimated_portion: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  confidence: number;
+  micronutrients: Record<string, string>;
+  caveats: string;
 }
 
 export interface CoachNextMealResponse {
@@ -587,9 +606,34 @@ export const api = {
   },
 
   /**
-   * Manually logs a meal entry.
+   * Analyzes a food photo via Claude vision — returns an editable nutrition
+   * estimate for review. Does not save anything; call addManualEntry with
+   * source: "image_scan" to persist the (possibly edited) result.
    */
-  async addManualEntry(entry: { meal_name: string; calories: number; protein_g: number; carbs_g?: number; fat_g?: number }): Promise<NutritionEntry> {
+  async scanFoodImage(file: File): Promise<FoodScanResult> {
+    const formData = new FormData();
+    formData.append("file", file);
+    return apiFetch<FoodScanResult>("/coach/scan-food-image", {
+      method: "POST",
+      body: formData,
+    });
+  },
+
+  /**
+   * Manually logs a meal entry — also the save path for a reviewed
+   * food-image-scan result (pass source/confidence/is_estimated/micronutrients).
+   */
+  async addManualEntry(entry: {
+    meal_name: string;
+    calories: number;
+    protein_g: number;
+    carbs_g?: number;
+    fat_g?: number;
+    source?: string;
+    confidence?: number;
+    is_estimated?: boolean;
+    micronutrients?: Record<string, string> | null;
+  }): Promise<NutritionEntry> {
     return apiFetch<NutritionEntry>("/coach/manual-entry", {
       method: "POST",
       body: JSON.stringify(entry),
