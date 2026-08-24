@@ -60,7 +60,13 @@ def test_google_login_rejects_mock_token_outside_mock_mode(mock_get):
     same real Google verification as any other token and fails on its merits
     (a malformed/fake token isn't a valid Google id_token)."""
     original_use_mock = os.environ.get("USE_MOCK_MCP")
+    original_google_client_id = os.environ.get("GOOGLE_CLIENT_ID")
     os.environ["USE_MOCK_MCP"] = "false"
+    # Real verification only runs when a client ID is configured — without
+    # this, an unset GOOGLE_CLIENT_ID (the .env.example default) takes the
+    # "not configured" 500 branch instead of ever reaching requests.get,
+    # which is what this test is actually exercising.
+    os.environ["GOOGLE_CLIENT_ID"] = "expected-client-id"
 
     mock_response = MagicMock()
     mock_response.status_code = 400  # Google rejects a malformed/fake id_token
@@ -83,6 +89,10 @@ def test_google_login_rejects_mock_token_outside_mock_mode(mock_get):
             os.environ.pop("USE_MOCK_MCP", None)
         else:
             os.environ["USE_MOCK_MCP"] = original_use_mock
+        if original_google_client_id is None:
+            os.environ.pop("GOOGLE_CLIENT_ID", None)
+        else:
+            os.environ["GOOGLE_CLIENT_ID"] = original_google_client_id
 
 @patch("backend.auth.user_auth.requests.get")
 def test_google_login_rejects_audience_mismatch(mock_get):
