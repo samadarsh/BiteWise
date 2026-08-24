@@ -108,8 +108,8 @@ Open `http://localhost:3000`
 ## ✅ Verification
 
 ```bash
-# Backend tests (52 passing)
-.venv/bin/python run_tests.py
+# Backend tests
+.venv/bin/python -m pytest agent/tests/ -q
 
 # Frontend lint + build
 cd frontend
@@ -122,6 +122,30 @@ npm run build
 
 # Local diagnostics
 .venv/bin/python scripts/dev_check.py
+```
+
+Also runs automatically on every push/PR via GitHub Actions (`.github/workflows/ci.yml`).
+
+`run_tests.py` at the repo root is a legacy hand-rolled runner that predates
+the pytest suite — it hardcodes an old subset of test functions and is out
+of sync with `agent/tests/` (missing several newer test files entirely).
+Use `pytest agent/tests/` instead; `run_tests.py` is kept only for now in
+case anything external still calls it.
+
+## 🗄️ Database Migrations
+
+Schema changes are tracked with [Alembic](https://alembic.sqlalchemy.org/).
+Local SQLite dev still self-heals via `Base.metadata.create_all()` +
+idempotent `ALTER TABLE` checks in `backend/main.py`'s startup hook (so a
+fresh clone works with zero migration steps), but that only covers SQLite —
+a real Postgres deployment needs Alembic run explicitly:
+
+```bash
+# Apply all migrations (run once per deploy, before starting the server)
+.venv/bin/python -m alembic upgrade head
+
+# After changing backend/db/models.py (or any *_models.py), generate the migration
+.venv/bin/python -m alembic revision --autogenerate -m "describe the change"
 ```
 
 ---
