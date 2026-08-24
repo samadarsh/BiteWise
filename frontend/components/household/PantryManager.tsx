@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { PantryItem } from "../../lib/api";
 import QuickStockModal from "./QuickStockModal";
+import { useDashboard } from "../../lib/dashboard-context";
 
 interface PantryManagerProps {
   pantry: PantryItem[];
@@ -27,6 +28,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function PantryManager({ pantry, onAddOrUpdateItem, onDeleteItem, onQuickStock }: PantryManagerProps) {
+  const { showAlert } = useDashboard();
   const [showAddForm, setShowAddForm] = useState(false);
   const [showQuickStock, setShowQuickStock] = useState(false);
   const [name, setName] = useState("");
@@ -57,7 +59,7 @@ export default function PantryManager({ pantry, onAddOrUpdateItem, onDeleteItem,
       setIsBulk(false);
       setShowAddForm(false);
     } catch (err) {
-      alert("Failed to update pantry: " + err);
+      showAlert(`Failed to update pantry: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setLoading(false);
     }
@@ -76,7 +78,15 @@ export default function PantryManager({ pantry, onAddOrUpdateItem, onDeleteItem,
         is_bulk: item.is_bulk,
       });
     } catch (err) {
-      console.error("Failed to cycle stock:", err);
+      showAlert(`Failed to update stock level: ${err instanceof Error ? err.message : String(err)}`, "error");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await onDeleteItem(id);
+    } catch (err) {
+      showAlert(`Failed to delete item: ${err instanceof Error ? err.message : String(err)}`, "error");
     }
   };
 
@@ -245,7 +255,7 @@ export default function PantryManager({ pantry, onAddOrUpdateItem, onDeleteItem,
                         Bulk (Use: {item.bulk_use_count})
                       </span>
                     )}
-                    {daysLeft !== null && (
+                    {daysLeft !== null && item.stock_level !== "empty" && (
                       <span className={`px-1 py-0.5 rounded uppercase font-bold ${
                         daysLeft <= 1 ? "bg-danger/10 text-danger border border-danger/20" : "bg-surface-3 text-muted"
                       }`}>
@@ -283,7 +293,7 @@ export default function PantryManager({ pantry, onAddOrUpdateItem, onDeleteItem,
                     🔄 Adjust Level
                   </button>
                   <button
-                    onClick={() => onDeleteItem(item.id)}
+                    onClick={() => handleDelete(item.id)}
                     className="text-[10px] font-bold text-danger hover:text-danger transition"
                   >
                     Delete

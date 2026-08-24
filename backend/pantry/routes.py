@@ -123,7 +123,7 @@ async def add_or_update_pantry_item(
 
     # Create new item
     item_id = f"pantry_{secrets.token_hex(4)}"
-    expiry = req.expiry_date or _auto_expiry(category)
+    expiry = req.expiry_date or (_auto_expiry(category) if req.stock_level != "empty" else None)
     new_item = PantryItem(
         id=item_id,
         household_id=household.id,
@@ -293,7 +293,11 @@ async def cook_recipe(
     db.commit()
 
     return {
-        "success": True,
+        # Honest, not unconditional: a recipe whose ingredients were all
+        # missing from the pantry or already at "empty" stock decremented
+        # nothing — that's not a successful cook-log entry, even though the
+        # request itself completed without error.
+        "success": len(decremented) > 0,
         "recipe": recipe_name,
         "decremented": decremented,
         "bulk_skipped": skipped_bulk,

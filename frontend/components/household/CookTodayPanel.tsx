@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api, CookTodayResponse, RecipeSuggestion, SkippedRecipe } from "../../lib/api";
+import { useDashboard } from "../../lib/dashboard-context";
 
 interface CookTodayPanelProps {
   onPlanRecipe: (recipe: {
@@ -11,6 +12,7 @@ interface CookTodayPanelProps {
 }
 
 export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookTodayPanelProps) {
+  const { showAlert } = useDashboard();
   const [data, setData] = useState<CookTodayResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [planningRecipe, setPlanningRecipe] = useState<string | null>(null);
@@ -53,7 +55,7 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
       setTimeout(() => setCookMessage(null), 5000);
       await loadSuggestions();
     } catch {
-      alert("Failed to plan recipe");
+      showAlert("Failed to plan recipe", "error");
     } finally {
       setPlanningRecipe(null);
     }
@@ -67,14 +69,17 @@ export default function CookTodayPanel({ onPlanRecipe, onCookSuccess }: CookToda
       if (res.success) {
         setCookMessage(`🎉 Cooked ${recipeName}! Pantry items updated.`);
         setTimeout(() => setCookMessage(null), 5000);
-        
+
         await loadSuggestions();
         if (onCookSuccess) {
           await onCookSuccess();
         }
+      } else {
+        setCookMessage(`Nothing to update — none of ${recipeName}'s ingredients were in stock.`);
+        setTimeout(() => setCookMessage(null), 5000);
       }
     } catch (err) {
-      alert("Failed to record cooking: " + err);
+      showAlert(`Failed to record cooking: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setCookingRecipe(null);
     }

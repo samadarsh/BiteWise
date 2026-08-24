@@ -12,7 +12,11 @@ from backend.grocery.models import GroceryList, GroceryListItem, RecipePlan
 
 def test_household_module_flow():
     """Unified test verifying the full household foundation, pantry, recipe scanning, and cart preview."""
-    
+    # Cart preview pricing here asserts against the mock Instamart catalog's
+    # fixed prices — real mode would hit _match_catalog_product_live instead
+    # and fall back to SIMULATED pricing with no live Swiggy connection.
+    os.environ["USE_MOCK_MCP"] = "true"
+
     test_user_id = "user_test_hh"
     
     # 1. Setup Auth override
@@ -398,6 +402,35 @@ def test_cook_auto_decrement():
         app.dependency_overrides.pop(get_current_user_id, None)
 
 
+def test_cook_recipe_reports_failure_when_nothing_decremented():
+    """A recipe whose ingredients are all missing from the pantry (or
+    already at empty stock) decrements nothing — the endpoint used to
+    unconditionally report success anyway, showing a false "Cooked!"
+    celebration for a no-op."""
+    test_user_id = "user_test_cook_empty"
+    app.dependency_overrides[get_current_user_id] = lambda: test_user_id
+    db = SessionLocal()
+    try:
+        with TestClient(app) as client:
+            client.get("/household/my-home")
+            # No pantry items seeded at all — nothing to decrement.
+            cook_res = client.post("/pantry/cook/Paneer Butter Masala")
+            assert cook_res.status_code == 200
+            data = cook_res.json()
+            assert data["success"] is False
+            assert data["total_updated"] == 0
+    finally:
+        member = db.query(HouseholdMember).filter(HouseholdMember.user_id == test_user_id).first()
+        if member:
+            hh_id = member.household_id
+            db.query(PantryItem).filter(PantryItem.household_id == hh_id).delete()
+            db.query(HouseholdMember).filter(HouseholdMember.household_id == hh_id).delete()
+            db.query(Household).filter(Household.id == hh_id).delete()
+            db.commit()
+        db.close()
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+
 def test_bulk_item_slow_decrement():
     """Verify that bulk items only decrement their stock tier every 3rd cook action."""
     test_user_id = "user_test_bulk"
@@ -473,6 +506,46 @@ def test_expiring_items():
             assert data["total_count"] == 1
             assert data["expiring_items"][0]["item_name"] == "Paneer"
             assert data["expiring_items"][0]["urgency"] == "tomorrow"
+    finally:
+        member = db.query(HouseholdMember).filter(HouseholdMember.user_id == test_user_id).first()
+        if member:
+            hh_id = member.household_id
+            db.query(PantryItem).filter(PantryItem.household_id == hh_id).delete()
+            db.query(HouseholdMember).filter(HouseholdMember.household_id == hh_id).delete()
+            db.query(Household).filter(Household.id == hh_id).delete()
+            db.commit()
+        db.close()
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+
+def test_new_empty_item_gets_no_auto_expiry():
+    """A perishable category (e.g. Dairy) auto-assigns a default expiry date
+    on creation — but not for an item added as already Empty. Nothing to
+    expire with zero stock, and the pantry UI's expiry badge is hidden for
+    Empty items anyway; a phantom expiry date there is just confusing."""
+    test_user_id = "user_test_empty_no_expiry"
+    app.dependency_overrides[get_current_user_id] = lambda: test_user_id
+    db = SessionLocal()
+    try:
+        with TestClient(app) as client:
+            client.get("/household/my-home")
+
+            res = client.post("/pantry", json={
+                "item_name": "Yogurt",
+                "stock_level": "empty",
+                "category": "Dairy",
+            })
+            assert res.status_code == 200
+            assert res.json()["expiry_date"] is None
+
+            # Sanity check: the same category with real stock DOES get one.
+            res2 = client.post("/pantry", json={
+                "item_name": "Milk",
+                "stock_level": "full",
+                "category": "Dairy",
+            })
+            assert res2.status_code == 200
+            assert res2.json()["expiry_date"] is not None
     finally:
         member = db.query(HouseholdMember).filter(HouseholdMember.user_id == test_user_id).first()
         if member:
