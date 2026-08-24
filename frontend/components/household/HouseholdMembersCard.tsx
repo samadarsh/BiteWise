@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { HouseholdMember } from "../../lib/api";
+import { useDashboard } from "../../lib/dashboard-context";
 
 interface HouseholdMembersCardProps {
   members: HouseholdMember[];
@@ -8,6 +9,7 @@ interface HouseholdMembersCardProps {
 }
 
 export default function HouseholdMembersCard({ members, onAddMember, onDeleteMember }: HouseholdMembersCardProps) {
+  const { showAlert } = useDashboard();
   const [showAddForm, setShowAddForm] = useState(false);
   const [name, setName] = useState("");
   const [dietary, setDietary] = useState("any");
@@ -42,9 +44,17 @@ export default function HouseholdMembersCard({ members, onAddMember, onDeleteMem
       setProtein("");
       setShowAddForm(false);
     } catch (err) {
-      alert("Failed to add member: " + err);
+      showAlert(`Failed to add member: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await onDeleteMember(id);
+    } catch (err) {
+      showAlert(`Failed to remove member: ${err instanceof Error ? err.message : String(err)}`, "error");
     }
   };
 
@@ -160,7 +170,7 @@ export default function HouseholdMembersCard({ members, onAddMember, onDeleteMem
               </span>
             ) : (
               <button
-                onClick={() => onDeleteMember(member.id)}
+                onClick={() => handleDelete(member.id)}
                 className="text-xs text-danger hover:text-danger font-semibold px-2 py-1 rounded hover:bg-danger/10 transition"
               >
                 Remove

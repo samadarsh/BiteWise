@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { api, KitchenResolveResponse, RecipeSuggestion } from "../../lib/api";
+import { useDashboard } from "../../lib/dashboard-context";
 
 interface CookQueryStepProps {
   onAddGrocery: (item: { item_name: string; quantity: number; unit: string }) => Promise<void>;
@@ -18,6 +19,7 @@ function CoverageBar({ pct }: { pct: number }) {
 }
 
 export default function CookQueryStep({ onAddGrocery, onNext, onBack }: CookQueryStepProps) {
+  const { showAlert } = useDashboard();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<KitchenResolveResponse | null>(null);
@@ -33,7 +35,7 @@ export default function CookQueryStep({ onAddGrocery, onNext, onBack }: CookQuer
       const res = await api.resolveKitchenQuery(trimmed);
       setResult(res);
     } catch (err) {
-      alert("Couldn't resolve that: " + (err instanceof Error ? err.message : String(err)));
+      showAlert(`Couldn't resolve that: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setLoading(false);
     }
@@ -50,7 +52,7 @@ export default function CookQueryStep({ onAddGrocery, onNext, onBack }: CookQuer
       setAddedMessage(`✅ Added ${n} item${n === 1 ? "" : "s"} to your grocery list for ${recipe.name}.`);
       setTimeout(() => setAddedMessage(null), 5000);
     } catch (err) {
-      alert("Failed to add items: " + (err instanceof Error ? err.message : String(err)));
+      showAlert(`Failed to add items: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setAdding(false);
     }
@@ -68,7 +70,7 @@ export default function CookQueryStep({ onAddGrocery, onNext, onBack }: CookQuer
       setAddedMessage(`✅ Added ${n} item${n === 1 ? "" : "s"} to your grocery list.`);
       setTimeout(() => setAddedMessage(null), 5000);
     } catch (err) {
-      alert("Failed to add items: " + (err instanceof Error ? err.message : String(err)));
+      showAlert(`Failed to add items: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setAdding(false);
     }

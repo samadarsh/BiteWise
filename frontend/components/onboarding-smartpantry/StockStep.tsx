@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import QuickStockChecklist from "../household/QuickStockChecklist";
 import { ONBOARDING_TEMPLATES } from "../household/QuickStockModal";
+import { useDashboard } from "../../lib/dashboard-context";
 
 interface StockStepProps {
   onQuickStock: (items: { item_name: string; category: string; stock_level: string; is_bulk: boolean }[]) => Promise<void>;
@@ -8,6 +9,7 @@ interface StockStepProps {
 }
 
 export default function StockStep({ onQuickStock, onNext }: StockStepProps) {
+  const { showAlert } = useDashboard();
   const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     Object.values(ONBOARDING_TEMPLATES).forEach((items) => {
@@ -49,7 +51,7 @@ export default function StockStep({ onQuickStock, onNext }: StockStepProps) {
       await onQuickStock(toStock);
       onNext();
     } catch (err) {
-      alert("Failed to stock your pantry: " + err);
+      showAlert(`Failed to stock your pantry: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setLoading(false);
     }

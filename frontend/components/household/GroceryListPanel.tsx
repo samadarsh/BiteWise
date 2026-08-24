@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api, GroceryList, GroupedGroceryResponse, GroceryGroup, GroupedGroceryItem } from "../../lib/api";
+import { useDashboard } from "../../lib/dashboard-context";
 
 interface RecipeMatchItem {
   name: string;
@@ -24,6 +25,15 @@ interface GroceryListPanelProps {
 }
 
 export default function GroceryListPanel({ list, onAddItem, onToggleItem, onDeleteItem, onMatchRecipe }: GroceryListPanelProps) {
+  const { showAlert } = useDashboard();
+  const handleDelete = async (id: string) => {
+    try {
+      await onDeleteItem(id);
+    } catch (err) {
+      showAlert(`Failed to delete item: ${err instanceof Error ? err.message : String(err)}`, "error");
+    }
+  };
+
   const [showAddForm, setShowAddForm] = useState(false);
   const [name, setName] = useState("");
   const [quantity, setQuantity] = useState<number | "">(1);
@@ -78,7 +88,7 @@ export default function GroceryListPanel({ list, onAddItem, onToggleItem, onDele
       setUnit("unit");
       setShowAddForm(false);
     } catch (err) {
-      alert("Failed to add grocery item: " + err);
+      showAlert(`Failed to add grocery item: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setLoading(false);
     }
@@ -113,7 +123,7 @@ export default function GroceryListPanel({ list, onAddItem, onToggleItem, onDele
       });
       setMatchResult(res);
     } catch (err) {
-      alert("Recipe matching failed: " + err);
+      showAlert(`Recipe matching failed: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setLoading(false);
     }
@@ -344,7 +354,8 @@ export default function GroceryListPanel({ list, onAddItem, onToggleItem, onDele
                           )}
                         </div>
                         <button
-                          onClick={() => onDeleteItem(item.id)}
+                          onClick={() => handleDelete(item.id)}
+                          aria-label={`Delete ${item.item_name}`}
                           className="text-[10px] text-danger hover:text-danger font-semibold px-1.5 py-0.5 rounded hover:bg-danger/10 transition"
                         >
                           ✕
@@ -385,7 +396,7 @@ export default function GroceryListPanel({ list, onAddItem, onToggleItem, onDele
                   </span>
                 </div>
                 <button
-                  onClick={() => onDeleteItem(item.id)}
+                  onClick={() => handleDelete(item.id)}
                   className="text-xs text-danger hover:text-danger font-semibold px-2 py-1 rounded hover:bg-danger/10 transition"
                 >
                   Delete

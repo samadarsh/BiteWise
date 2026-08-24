@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import QuickStockChecklist from "./QuickStockChecklist";
+import { useDashboard } from "../../lib/dashboard-context";
 
 export const ONBOARDING_TEMPLATES = {
   "Staples & Grains": [
@@ -49,6 +50,7 @@ interface QuickStockModalProps {
 }
 
 export default function QuickStockModal({ isOpen, onClose, onStock }: QuickStockModalProps) {
+  const { showAlert } = useDashboard();
   const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     Object.values(ONBOARDING_TEMPLATES).forEach((items) => {
@@ -97,7 +99,7 @@ export default function QuickStockModal({ isOpen, onClose, onStock }: QuickStock
       await onStock(toStock);
       onClose();
     } catch (err) {
-      alert("Failed to quick stock: " + err);
+      showAlert(`Failed to quick stock: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setLoading(false);
     }
@@ -118,6 +120,7 @@ export default function QuickStockModal({ isOpen, onClose, onStock }: QuickStock
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="text-muted hover:text-text transition text-xl p-1"
           >
             ✕
