@@ -1,4 +1,4 @@
-import anthropic
+from google.genai import errors as genai_errors
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List
@@ -53,13 +53,13 @@ async def scan_food_image(
     _rate_limit = Depends(mutating_rate_limiter)
 ):
     """
-    Analyzes a food photo via Claude vision and returns a nutrition estimate
+    Analyzes a food photo via Gemini vision and returns a nutrition estimate
     for review — does NOT write to the database. The client saves a
     reviewed/edited result through the existing POST /manual-entry with
     source="image_scan" (see ManualEntrySchema).
     """
     settings = get_settings()
-    if not settings.anthropic_api_key:
+    if not settings.gemini_api_key:
         raise HTTPException(status_code=503, detail="Food scanning is not configured on this server.")
 
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -69,16 +69,16 @@ async def scan_food_image(
 
     try:
         return analyze_food_image(image_bytes, file.content_type)
-    except anthropic.AuthenticationError:
-        raise HTTPException(status_code=503, detail="Food scanning is misconfigured (invalid API key).")
-    except anthropic.RateLimitError:
-        raise HTTPException(status_code=429, detail="Food scanning is rate-limited right now — try again shortly.")
-    except anthropic.BadRequestError as e:
-        raise HTTPException(status_code=400, detail=f"Couldn't analyze that image: {e.message}")
-    except anthropic.APIStatusError as e:
+    except genai_errors.APIError as e:
+        if e.code in (401, 403):
+            raise HTTPException(status_code=503, detail="Food scanning is misconfigured (invalid API key).")
+        if e.code == 429:
+            raise HTTPException(status_code=429, detail="Food scanning is rate-limited right now — try again shortly.")
+        if e.code == 400:
+            raise HTTPException(status_code=400, detail=f"Couldn't analyze that image: {e.message}")
         raise HTTPException(status_code=502, detail=f"Food scanning service error: {e.message}")
-    except anthropic.APIConnectionError:
-        raise HTTPException(status_code=502, detail="Couldn't reach the food scanning service. Try again.")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Couldn't reach the food scanning service: {str(e)}")
 
 @router.get("/history", response_model=List[NutritionEntrySchema])
 async def get_logged_meals_history(

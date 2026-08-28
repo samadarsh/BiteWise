@@ -31,15 +31,15 @@ def _canned_result() -> FoodScanResult:
     )
 
 
-@patch("agent.food_vision.anthropic.Anthropic")
-def test_scan_food_image_returns_analysis(mock_anthropic_cls):
-    os.environ["ANTHROPIC_API_KEY"] = "sk-test-key"
+@patch("agent.food_vision.genai.Client")
+def test_scan_food_image_returns_analysis(mock_client_cls):
+    os.environ["GEMINI_API_KEY"] = "test-key"
 
     mock_client = MagicMock()
     mock_response = MagicMock()
-    mock_response.parsed_output = _canned_result()
-    mock_client.messages.parse.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_response.parsed = _canned_result()
+    mock_client.models.generate_content.return_value = mock_response
+    mock_client_cls.return_value = mock_client
 
     with TestClient(app) as client:
         headers = _auth_headers(client)
@@ -55,16 +55,16 @@ def test_scan_food_image_returns_analysis(mock_anthropic_cls):
         assert data["confidence"] == 0.72
         assert data["micronutrients"] == {"sodium": "~500mg", "fiber": "~4g"}
 
-        # Confirm the image actually reached the Claude call as a base64 block
-        _, kwargs = mock_client.messages.parse.call_args
-        assert kwargs["output_format"] is FoodScanResult
-        content = kwargs["messages"][0]["content"]
-        assert content[0]["type"] == "image"
-        assert content[0]["source"]["media_type"] == "image/jpeg"
+        # Confirm the image actually reached the Gemini call as inline bytes
+        _, kwargs = mock_client.models.generate_content.call_args
+        assert kwargs["config"].response_schema is FoodScanResult
+        image_part = kwargs["contents"][1]
+        assert image_part.inline_data.mime_type == "image/jpeg"
+        assert image_part.inline_data.data == b"\xff\xd8\xff\xe0fakejpegbytes"
 
 
 def test_scan_food_image_rejects_non_image_file():
-    os.environ["ANTHROPIC_API_KEY"] = "sk-test-key"
+    os.environ["GEMINI_API_KEY"] = "test-key"
     with TestClient(app) as client:
         headers = _auth_headers(client)
         res = client.post(
@@ -76,7 +76,7 @@ def test_scan_food_image_rejects_non_image_file():
 
 
 def test_scan_food_image_disabled_without_api_key():
-    os.environ.pop("ANTHROPIC_API_KEY", None)
+    os.environ.pop("GEMINI_API_KEY", None)
     with TestClient(app) as client:
         headers = _auth_headers(client)
         res = client.post(
@@ -88,7 +88,7 @@ def test_scan_food_image_disabled_without_api_key():
 
 
 def test_scan_food_image_rejects_oversized_upload():
-    os.environ["ANTHROPIC_API_KEY"] = "sk-test-key"
+    os.environ["GEMINI_API_KEY"] = "test-key"
     with TestClient(app) as client:
         headers = _auth_headers(client)
         oversized = b"\xff\xd8\xff\xe0" + (b"0" * (9 * 1024 * 1024))  # 9MB > 8MB cap

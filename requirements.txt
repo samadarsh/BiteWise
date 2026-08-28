@@ -19,5 +19,5 @@ alembic>=1.13.0
 sentry-sdk[fastapi]>=2.0.0
 
 # Food image scan (backend/coach/routes.py: POST /coach/scan-food-image)
-anthropic>=1.0.0,<2
+google-genai>=2.0.0,<3
 python-multipart>=0.0.9  # required by FastAPI's UploadFile/File() form parsing

@@ -1,7 +1,7 @@
-import base64
 from typing import Dict
 
-import anthropic
+from google import genai
+from google.genai import types
 from pydantic import BaseModel, Field
 
 from agent.observability import log_info
@@ -13,7 +13,7 @@ class FoodScanResult(BaseModel):
     estimate; micronutrients are explicitly rougher (a flexible dict, not
     per-nutrient precision) and confidence/caveats must reflect that a
     single photo cannot reveal true nutrient content — only visual signals
-    (food type, apparent portion size) that Claude reasons from."""
+    (food type, apparent portion size) that Gemini reasons from."""
 
     food_name: str
     description: str
@@ -54,40 +54,30 @@ actually support."""
 
 
 def analyze_food_image(image_bytes: bytes, media_type: str) -> FoodScanResult:
-    """Identifies the food in a photo and estimates its nutrition via Claude
-    vision. Raises anthropic.APIError subclasses on failure — the caller
+    """Identifies the food in a photo and estimates its nutrition via Gemini
+    vision. Raises google.genai.errors.APIError on failure — the caller
     (backend/coach/routes.py) is responsible for turning those into an HTTP
     response; this function does not swallow errors or fabricate a fallback
     result the way a failed heuristic lookup might."""
     settings = get_settings()
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-
-    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    client = genai.Client(api_key=settings.gemini_api_key)
 
     log_info("Starting food image scan analysis.", {"media_type": media_type, "image_bytes": len(image_bytes)})
 
-    response = client.messages.parse(
-        model="claude-opus-5",
-        max_tokens=2048,
-        system=_SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": media_type,
-                        "data": image_b64,
-                    },
-                },
-                {"type": "text", "text": "Identify this food and estimate its nutrition."},
-            ],
-        }],
-        output_format=FoodScanResult,
+    response = client.models.generate_content(
+        model="gemini-3.5-flash",
+        contents=[
+            "Identify this food and estimate its nutrition.",
+            types.Part.from_bytes(data=image_bytes, mime_type=media_type),
+        ],
+        config=types.GenerateContentConfig(
+            system_instruction=_SYSTEM_PROMPT,
+            response_mime_type="application/json",
+            response_schema=FoodScanResult,
+        ),
     )
 
-    result = response.parsed_output
+    result = response.parsed
     log_info(
         f"Food image scan complete: {result.food_name} ({result.calories} kcal, confidence {result.confidence})",
     )
