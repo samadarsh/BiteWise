@@ -13,9 +13,29 @@ BITEWISE_SESSION_COOKIE = APIKeyCookie(name="bitewise_session", auto_error=False
 LEGACY_SESSION_COOKIE = APIKeyCookie(name="nutriorder_session", auto_error=False)
 
 
-def should_use_secure_cookies() -> bool:
-    settings = get_settings()
-    return not settings.use_mock_mcp
+def should_use_secure_cookies(request: Request) -> bool:
+    """
+    Secure/SameSite=None cookies only work reliably when the connection is
+    actually HTTPS — a browser won't consistently persist a Secure cookie
+    set over plain http:// and then return it on a later top-level
+    navigation (exactly what an OAuth redirect back from Swiggy is).
+
+    Previously this was `not settings.use_mock_mcp` — real mode always
+    forced Secure/SameSite=None, mock mode never did, regardless of the
+    actual connection. That broke the real Swiggy OAuth callback on local
+    dev (real mode running on plain http://localhost): the oauth_state/
+    oauth_code_verifier cookies from /auth/swiggy/start silently failed to
+    round-trip, so the callback's CSRF state check always failed with
+    "OAuth state parameter mismatch" even on a fully correct login.
+
+    Detects the actual scheme, honoring X-Forwarded-Proto for a
+    reverse-proxied deployment (Vercel/Render terminate TLS in front of the
+    app, so request.url.scheme as FastAPI sees it is "http" even in
+    production unless this header is trusted).
+    """
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    scheme = forwarded_proto or request.url.scheme
+    return scheme == "https"
 
 
 def _get_session_secret() -> bytes:
@@ -61,8 +81,8 @@ def verify_session(value: Optional[str]) -> Optional[str]:
     return None
 
 
-def set_session_cookies(response: Response, user_id: str, max_age: int = 30 * 86400) -> None:
-    is_secure = should_use_secure_cookies()
+def set_session_cookies(request: Request, response: Response, user_id: str, max_age: int = 30 * 86400) -> None:
+    is_secure = should_use_secure_cookies(request)
     samesite = "none" if is_secure else "lax"
     signed_value = sign_session(user_id)
     for cookie_name in SESSION_COOKIE_NAMES:
@@ -76,8 +96,8 @@ def set_session_cookies(response: Response, user_id: str, max_age: int = 30 * 86
         )
 
 
-def clear_session_cookies(response: Response) -> None:
-    is_secure = should_use_secure_cookies()
+def clear_session_cookies(request: Request, response: Response) -> None:
+    is_secure = should_use_secure_cookies(request)
     samesite = "none" if is_secure else "lax"
     for cookie_name in SESSION_COOKIE_NAMES:
         response.delete_cookie(

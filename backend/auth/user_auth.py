@@ -93,6 +93,7 @@ async def get_my_profile(
 
 @router.post("/guest")
 async def create_guest_session(
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
     _rate_limit = Depends(mutating_rate_limiter)
@@ -122,7 +123,7 @@ async def create_guest_session(
     db.add(profile)
     db.commit()
 
-    set_session_cookies(response, user_id)
+    set_session_cookies(request, response, user_id)
 
     return {
         "success": True,
@@ -136,6 +137,7 @@ async def create_guest_session(
 @router.post("/google")
 async def login_with_google(
     payload: GoogleLoginRequest,
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
     _rate_limit = Depends(mutating_rate_limiter)
@@ -268,7 +270,7 @@ async def login_with_google(
         user.auth_provider = "google"
         db.commit()
 
-    set_session_cookies(response, user.id)
+    set_session_cookies(request, response, user.id)
 
     token_record = db.query(SwiggyToken).filter(SwiggyToken.user_id == user.id).first()
     swiggy_connected = _is_swiggy_token_valid(token_record)
@@ -322,5 +324,5 @@ async def logout(request: Request, response: Response, db: Session = Depends(get
             db.delete(token_record)
             db.commit()
 
-    clear_session_cookies(response)
+    clear_session_cookies(request, response)
     return {"success": True, "message": "Logged out successfully."}

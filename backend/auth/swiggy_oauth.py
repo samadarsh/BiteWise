@@ -12,6 +12,7 @@ from backend.db.models import User, SwiggyToken, UserProfile, SwiggyClientRegist
 from backend.auth.sessions import encrypt_token, get_current_user_id, set_session_cookies, should_use_secure_cookies, sign_session
 from backend.auth.rate_limiter import mutating_rate_limiter
 from config.settings import get_settings
+from agent.observability import log_error
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -110,7 +111,7 @@ async def start_swiggy_oauth(
         client_id = _get_or_register_swiggy_client(db)
 
     user_id = await get_current_user_id(request, strict=True)
-    secure_cookie = should_use_secure_cookies()
+    secure_cookie = should_use_secure_cookies(request)
     samesite_setting = "none" if secure_cookie else "lax"
 
     state_token = secrets.token_urlsafe(16)
@@ -182,6 +183,7 @@ async def swiggy_oauth_callback(
         response.delete_cookie("oauth_state")
 
     def handle_error(status_code: int, detail: str):
+        log_error(f"Swiggy OAuth callback failed: {detail}", error_category="oauth_callback_error")
         if return_json:
             clean_cookies()
             raise HTTPException(status_code=status_code, detail=detail)
@@ -293,7 +295,7 @@ async def swiggy_oauth_callback(
     db.commit()
 
     if return_json:
-        set_session_cookies(response, user.id, max_age=432000)
+        set_session_cookies(request, response, user.id, max_age=432000)
         clean_cookies()
         return {
             "success": True,
@@ -303,14 +305,14 @@ async def swiggy_oauth_callback(
         }
     else:
         redirect_res = RedirectResponse(url=f"{settings.frontend_base_url}/app")
-        set_session_cookies(redirect_res, user.id, max_age=432000)
+        set_session_cookies(request, redirect_res, user.id, max_age=432000)
         # Clean oauth verifier/state cookies on successful redirect
         redirect_res.delete_cookie("oauth_code_verifier")
         redirect_res.delete_cookie("oauth_state")
         return redirect_res
 
 @router.post("/demo-login")
-async def demo_login(response: Response, db: Session = Depends(get_db)) -> Dict[str, Any]:
+async def demo_login(request: Request, response: Response, db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     Demo login endpoint for mock-mode testing.
     Auto-provisions a demo user and attaches the session cookie.
@@ -352,7 +354,7 @@ async def demo_login(response: Response, db: Session = Depends(get_db)) -> Dict[
     db.commit()
     
     # Set BiteWise primary and legacy fallback cookies.
-    set_session_cookies(response, user_id, max_age=432000)
+    set_session_cookies(request, response, user_id, max_age=432000)
     
     return {
         "success": True,
