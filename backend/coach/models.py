@@ -46,7 +46,9 @@ class NutritionEntrySchema(BaseModel):
 
 
 class WeightLogRequest(BaseModel):
-    weight_kg: float = Field(..., gt=0, le=500)
+    # Same bounds as UserProfileSchema.weight_kg — logging a weight outside
+    # them used to save fine and then break GET /me/profile for good.
+    weight_kg: float = Field(..., ge=30.0, le=250.0)
 
 
 class WeightEntrySchema(BaseModel):

@@ -82,7 +82,7 @@ def _increment_level(current: str) -> str:
 # ── CRUD Endpoints ──────────────────────────────────
 
 @router.get("", response_model=List[PantryItemResponse])
-async def list_pantry_items(
+def list_pantry_items(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -93,7 +93,7 @@ async def list_pantry_items(
 
 
 @router.post("", response_model=PantryItemResponse)
-async def add_or_update_pantry_item(
+def add_or_update_pantry_item(
     req: PantryItemCreateRequest,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -140,7 +140,7 @@ async def add_or_update_pantry_item(
 
 
 @router.delete("/{item_id}")
-async def delete_pantry_item(
+def delete_pantry_item(
     item_id: str,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -163,7 +163,7 @@ async def delete_pantry_item(
 # ── Quick-Stock Onboarding ──────────────────────────
 
 @router.post("/quick-stock")
-async def quick_stock_pantry(
+def quick_stock_pantry(
     req: QuickStockRequest,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -218,7 +218,7 @@ async def quick_stock_pantry(
 
 
 @router.get("/template")
-async def get_kitchen_template():
+def get_kitchen_template():
     """Returns the pre-populated kitchen template for onboarding UI."""
     return {"template": KITCHEN_TEMPLATE}
 
@@ -226,7 +226,7 @@ async def get_kitchen_template():
 # ── Cook Auto-Decrement ─────────────────────────────
 
 @router.post("/cook/{recipe_name}")
-async def cook_recipe(
+def cook_recipe(
     recipe_name: str,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -308,7 +308,7 @@ async def cook_recipe(
 # ── Expiring Items ──────────────────────────────────
 
 @router.get("/expiring")
-async def get_expiring_items(
+def get_expiring_items(
     days: int = 3,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -376,9 +376,16 @@ def mark_grocery_items_purchased_and_restock(db: Session, household_id: str, ite
     marked = []
     restocked = []
 
+    from backend.grocery.models import GroceryList
+
     for item_id in item_ids:
-        grocery_item = db.query(GroceryListItem).filter(
-            GroceryListItem.id == item_id
+        # Scoped to this household's lists — the lookup used to be by id
+        # alone, so any user could mark another household's items purchased.
+        grocery_item = db.query(GroceryListItem).join(
+            GroceryList, GroceryListItem.grocery_list_id == GroceryList.id
+        ).filter(
+            GroceryListItem.id == item_id,
+            GroceryList.household_id == household_id,
         ).first()
 
         if not grocery_item:
@@ -410,7 +417,7 @@ def mark_grocery_items_purchased_and_restock(db: Session, household_id: str, ite
 
 
 @router.post("/mark-purchased")
-async def mark_purchased_and_restock(
+def mark_purchased_and_restock(
     req: MarkPurchasedRequest,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)

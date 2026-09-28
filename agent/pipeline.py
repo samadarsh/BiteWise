@@ -1,3 +1,4 @@
+import re
 import time
 from typing import Any, Dict, List, Tuple, Optional
 from agent.observability import log_info, log_warn, log_error, metrics_tracker
@@ -95,7 +96,7 @@ class NutriOrderPipeline:
                 "update_food_cart",
                 {
                     "restaurantId": best_meal["restaurant_id"], 
-                    "cartItems": [{"itemId": best_meal["item_id"], "quantity": 1}],
+                    "cartItems": [{"menu_item_id": best_meal["item_id"], "quantity": 1}],
                     "addressId": address_id,
                     "restaurantName": best_meal["restaurant_name"]
                 }
@@ -164,10 +165,12 @@ class NutriOrderPipeline:
         
         # Try to parse raw input keywords if user didn't fill form
         raw_lower = raw_input.lower()
-        if "veg" in raw_lower and "non-veg" not in raw_lower:
-            intent["dietary_preference"] = "veg"
-        elif "non-veg" in raw_lower:
+        # "non veg" / "nonveg" / "non-veg" must never be read as "veg" —
+        # a plain substring check for "veg" flipped those to vegetarian.
+        if re.search(r"\bnon[\s-]?veg", raw_lower):
             intent["dietary_preference"] = "non-veg"
+        elif re.search(r"\b(veg|vegetarian|vegan)\b", raw_lower):
+            intent["dietary_preference"] = "veg"
             
         return intent
 
@@ -271,6 +274,7 @@ class NutriOrderPipeline:
                             "restaurant_name": rest["name"],
                             "item_id": item["id"],
                             "item_name": item_name,
+                            "description": desc,
                             "protein_g": protein,
                             "calories": calories,
                             "fat_g": fat,
@@ -481,6 +485,7 @@ class NutriOrderPipeline:
                 # naming, kept as fallbacks so mock mode is unaffected.
                 "item_id": item.get("menu_item_id") or item.get("id") or item.get("item_id"),
                 "item_name": item_name,
+                "description": desc,
                 "protein_g": protein,
                 "calories": calories,
                 "fat_g": fat,

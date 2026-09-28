@@ -36,8 +36,9 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 
   const extraHeaders: Record<string, string> = {};
   if (sessionToken) {
+    // Only the signed token is ever trusted server-side (the old unsigned
+    // x-user-id header is ignored, so it's no longer sent).
     extraHeaders["Authorization"] = `Bearer ${sessionToken}`;
-    extraHeaders["x-user-id"] = sessionToken;
   }
 
   // A FormData body (file uploads) must NOT get an explicit Content-Type —
@@ -387,11 +388,15 @@ export interface CartPreview {
 
 export interface InstamartCheckoutResponse {
   success: boolean;
+  /** True when a multi-store cart was only partly ordered — the grocery list is left unchanged. */
+  partial?: boolean;
   order_id: string;
+  order_ids?: string[];
   status: string;
   total: number;
   items_ordered: number;
   restocked_to_full: string[];
+  message?: string | null;
 }
 
 // API Endpoints

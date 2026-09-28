@@ -195,7 +195,7 @@ class MockSwiggyFoodMCP:
         total = 0
         enriched_items = []
         for cart_item in cartItems:
-            item_id = cart_item.get("itemId")
+            item_id = cart_item.get("menu_item_id")
             quantity = int(cart_item.get("quantity", 1) or 1)
             item_details = item_lookup.get(item_id, {})
             item_total = int(item_details.get("price", 0) or 0) * quantity
@@ -244,7 +244,9 @@ class MockSwiggyFoodMCP:
 
         # Update cart total with coupon discount
         discount = coupon["discount_amount"]
-        original_total = self._cart.get("total", 0)
+        # Discount always comes off the pre-coupon subtotal, so applying the
+        # same (or another) coupon again replaces it instead of stacking.
+        original_total = (self._cart.get("bill") or {}).get("subtotal", self._cart.get("total", 0))
         new_total = max(0, original_total - discount)
         self._cart["total"] = new_total
         self._cart["applied_coupon"] = coupon["code"]

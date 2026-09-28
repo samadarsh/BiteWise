@@ -6,7 +6,17 @@ import requests
 from backend.main import app
 from backend.db.session import SessionLocal
 from backend.db.models import User, SwiggyToken, UserProfile
-from backend.auth.sessions import decrypt_token
+from backend.auth.sessions import decrypt_token, sign_oauth_state, sign_session
+
+
+def _begin_swiggy_flow(client, user_id):
+    """Sets the cookies /auth/swiggy/start would have set for user_id and
+    returns the signed state to echo back — the callback now only trusts a
+    state this server signed, never a hand-written one."""
+    state = sign_oauth_state(user_id)
+    client.cookies.set("oauth_state", state)
+    client.cookies.set("oauth_code_verifier", "test_verifier")
+    return state
 
 def test_swiggy_oauth_start_sets_cookies_and_returns_url():
     """Verify that start endpoint sets PKCE cookies and returns correct auth URL with state."""
@@ -69,10 +79,9 @@ def test_swiggy_oauth_callback_mock_mode_success():
         with TestClient(app) as client:
             guest_res = client.post("/auth/guest")
             guest_user_id = guest_res.json()["user_id"]
-            client.cookies.set("oauth_state", "my_state")
-            client.cookies.set("oauth_code_verifier", "my_verifier")
+            state = _begin_swiggy_flow(client, guest_user_id)
 
-            res = client.get("/auth/swiggy/callback?code=mock_code&state=my_state&return_json=true")
+            res = client.get("/auth/swiggy/callback", params={"code": "mock_code", "state": state, "return_json": "true"})
             assert res.status_code == 200
             data = res.json()
             assert data["success"] is True
@@ -146,11 +155,9 @@ def test_swiggy_oauth_callback_production_token_exchange(mock_post):
             finally:
                 db_setup.close()
 
-            client.cookies.set("bitewise_session", stg_user_id)
-            client.cookies.set("oauth_state", "stg_state")
-            client.cookies.set("oauth_code_verifier", "stg_verifier")
+            state = _begin_swiggy_flow(client, stg_user_id)
 
-            res = client.get("/auth/swiggy/callback?code=stg_code&state=stg_state&return_json=true")
+            res = client.get("/auth/swiggy/callback", params={"code": "stg_code", "state": state, "return_json": "true"})
             assert res.status_code == 200
             data = res.json()
             assert data["success"] is True
@@ -160,7 +167,7 @@ def test_swiggy_oauth_callback_production_token_exchange(mock_post):
             # PKCE's code_verifier is what proves client identity here.
             mock_post.assert_called_once()
             called_args, called_kwargs = mock_post.call_args
-            assert called_kwargs["json"]["code_verifier"] == "stg_verifier"
+            assert called_kwargs["json"]["code_verifier"] == "test_verifier"
             assert called_kwargs["json"]["code"] == "stg_code"
             assert "client_id" not in called_kwargs["json"]
             assert "client_secret" not in called_kwargs["json"]
@@ -222,11 +229,9 @@ def test_swiggy_oauth_callback_real_exchange_even_with_app_env_development(mock_
             finally:
                 db_setup.close()
 
-            client.cookies.set("bitewise_session", dev_user_id)
-            client.cookies.set("oauth_state", "dev_state")
-            client.cookies.set("oauth_code_verifier", "dev_verifier")
+            state = _begin_swiggy_flow(client, dev_user_id)
 
-            res = client.get("/auth/swiggy/callback?code=real_dev_code&state=dev_state&return_json=true")
+            res = client.get("/auth/swiggy/callback", params={"code": "real_dev_code", "state": state, "return_json": "true"})
             assert res.status_code == 200
             data = res.json()
 
@@ -256,16 +261,18 @@ def test_swiggy_oauth_callback_success_redirect():
     """Verify that successful oauth callback redirects to frontend app dashboard."""
     os.environ["USE_MOCK_MCP"] = "true"
     with TestClient(app) as client:
-        client.post("/auth/guest")
-        client.cookies.set("oauth_state", "my_state")
-        client.cookies.set("oauth_code_verifier", "my_verifier")
+        guest_user_id = client.post("/auth/guest").json()["user_id"]
+        state = _begin_swiggy_flow(client, guest_user_id)
 
         # Disable redirect following to inspect 307 redirect status
-        res = client.get("/auth/swiggy/callback?code=mock_code&state=my_state", follow_redirects=False)
+        res = client.get("/auth/swiggy/callback", params={"code": "mock_code", "state": state}, follow_redirects=False)
         assert res.status_code == 307
         assert "/app" in res.headers.get("location")
-        assert "bitewise_session" in res.cookies
-        assert "nutriorder_session" in res.cookies
+        assert "auth_error" not in res.headers.get("location")
+        # The callback must never mint a login session (see the takeover
+        # regression tests below) — the user is already logged in.
+        assert "bitewise_session" not in res.cookies
+        assert "nutriorder_session" not in res.cookies
 
 def test_swiggy_oauth_callback_requires_bitewise_session():
     """Verify that a valid OAuth code cannot create a disconnected app user."""
@@ -296,3 +303,83 @@ def test_swiggy_oauth_callback_failure_redirect():
         finally:
             if original_use_mock: os.environ["USE_MOCK_MCP"] = original_use_mock
             else: os.environ.pop("USE_MOCK_MCP", None)
+
+
+def _takeover_attempt(client, victim_id):
+    """The old exploit: hand-write a state naming the victim, set a matching
+    oauth_state cookie, and hit the callback."""
+    forged = f"x:{victim_id}"
+    client.cookies.set("oauth_state", forged)
+    client.cookies.set("oauth_code_verifier", "anything")
+    return client.get(
+        "/auth/swiggy/callback",
+        params={"code": "mock_code", "state": forged},
+        follow_redirects=False,
+    )
+
+
+def test_forged_state_cannot_take_over_account_in_mock_mode():
+    os.environ["USE_MOCK_MCP"] = "true"
+    with TestClient(app) as victim, TestClient(app) as attacker:
+        victim_id = victim.post("/auth/guest").json()["user_id"]
+        res = _takeover_attempt(attacker, victim_id)
+        assert "auth_error=" in res.headers.get("location", "")
+        assert "bitewise_session" not in res.cookies
+        assert attacker.get("/auth/me").json()["authenticated"] is False
+
+
+def test_forged_state_cannot_take_over_account_in_live_mode():
+    os.environ["USE_MOCK_MCP"] = "true"
+    with TestClient(app) as victim:
+        victim_id = victim.post("/auth/guest").json()["user_id"]
+    os.environ["USE_MOCK_MCP"] = "false"
+    with TestClient(app) as attacker:
+        res = _takeover_attempt(attacker, victim_id)
+        assert "auth_error=" in res.headers.get("location", "")
+        assert "bitewise_session" not in res.cookies
+    db = SessionLocal()
+    try:
+        assert db.query(SwiggyToken).filter(SwiggyToken.user_id == victim_id).first() is None
+    finally:
+        db.close()
+
+
+def test_live_mode_never_fabricates_token_for_mock_code():
+    """code=mock_code used to skip the real Swiggy exchange in live mode and
+    save a fabricated token."""
+    os.environ["USE_MOCK_MCP"] = "false"
+    with TestClient(app) as client:
+        user_id = f"live_user_{secrets.token_hex(4)}"
+        db = SessionLocal()
+        try:
+            db.add(User(id=user_id, auth_provider="guest"))
+            db.commit()
+        finally:
+            db.close()
+        state = _begin_swiggy_flow(client, user_id)
+        with patch("requests.post", side_effect=requests.exceptions.ConnectionError("no network in tests")) as mock_post:
+            res = client.get("/auth/swiggy/callback", params={"code": "mock_code", "state": state, "return_json": "true"})
+        mock_post.assert_called_once()
+        assert res.status_code >= 400
+
+
+def test_callback_rejects_state_for_a_different_logged_in_user():
+    os.environ["USE_MOCK_MCP"] = "true"
+    with TestClient(app) as client:
+        other_id = client.post("/auth/guest").json()["user_id"]
+        me_id = client.post("/auth/guest").json()["user_id"]  # browser now holds me_id's session
+        client.cookies.set("bitewise_session", sign_session(me_id))
+        state = _begin_swiggy_flow(client, other_id)
+        res = client.get("/auth/swiggy/callback", params={"code": "mock_code", "state": state, "return_json": "true"})
+        assert res.status_code == 401
+
+
+def test_expired_state_is_rejected():
+    import time as _time
+    os.environ["USE_MOCK_MCP"] = "true"
+    with TestClient(app) as client:
+        user_id = client.post("/auth/guest").json()["user_id"]
+        old_state = sign_oauth_state(user_id, now=_time.time() - 3600)
+        client.cookies.set("oauth_state", old_state)
+        res = client.get("/auth/swiggy/callback", params={"code": "mock_code", "state": old_state, "return_json": "true"})
+        assert res.status_code == 401

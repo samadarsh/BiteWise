@@ -111,6 +111,7 @@ export default function NutriOrderOrderPage() {
             </div>
           </div>
 
+          <p className="text-[10px] text-subtle -mb-2">Illustrative progress only — BiteWise doesn&apos;t receive live delivery updates yet. Check the Swiggy app for real-time tracking.</p>
           <div className="relative w-full my-2 sm:my-4 px-1 sm:px-8 overflow-visible">
             <div className="absolute left-[12.5%] right-[12.5%] top-4 sm:top-5 h-1 bg-border rounded-full" />
             <div className="absolute left-[12.5%] top-4 sm:top-5 h-1 bg-nutri rounded-full transition-all duration-1000" style={{ width: `${Math.min(75, Math.max(0, (trackingStep / 3) * 75))}%` }} />

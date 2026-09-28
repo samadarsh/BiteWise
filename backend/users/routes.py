@@ -31,8 +31,11 @@ def parse_dict_field(val) -> dict:
             return {}
     return dict(val)
 
+def _in_range(value, low, high):
+    return value if value is not None and low <= value <= high else None
+
 @router.get("/profile", response_model=UserProfileSchema)
-async def get_user_profile(
+def get_user_profile(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ) -> Any:
@@ -73,10 +76,13 @@ async def get_user_profile(
         dislikes=parse_json_field(profile.dislikes),
         favorite_cuisines=parse_json_field(profile.favorite_cuisines),
         fitness_goal=profile.fitness_goal,
-        age=profile.age,
+        # Rows saved before the weight-log bounds were aligned with this
+        # schema can hold out-of-range values; drop them instead of failing
+        # validation (which made this endpoint 500 for that user forever).
+        age=_in_range(profile.age, 10, 120),
         gender=profile.gender,
-        height_cm=profile.height_cm,
-        weight_kg=profile.weight_kg,
+        height_cm=_in_range(profile.height_cm, 50.0, 250.0),
+        weight_kg=_in_range(profile.weight_kg, 30.0, 250.0),
         activity_level=profile.activity_level or "moderate",
         meal_budget_default=profile.meal_budget_default or 300,
         preferred_meal_times=parse_dict_field(profile.preferred_meal_times),
@@ -85,7 +91,7 @@ async def get_user_profile(
     )
 
 @router.put("/profile", response_model=Dict[str, str])
-async def update_user_profile(
+def update_user_profile(
     profile_data: UserProfileSchema,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -121,7 +127,7 @@ async def update_user_profile(
     return {"message": "Profile updated successfully."}
 
 @router.get("/addresses", response_model=List[AddressSchema])
-async def get_user_addresses(
+def get_user_addresses(
     user_id: str = Depends(get_current_user_id)
 ) -> Any:
     """

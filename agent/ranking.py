@@ -1,6 +1,7 @@
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from agent.observability import log_info
+from agent.allergens import find_allergen_conflicts
 
 class RankingFactor:
     def __init__(self, name: str, weight: float) -> None:
@@ -239,19 +240,20 @@ class RankingEngine:
             # Check allergy exclusions
             allergies = profile.get("allergies", [])
             dislikes = profile.get("dislikes", [])
-            meal_name = meal.get("item_name", "").lower()
-            
-            has_allergen = False
-            for allergen in allergies:
-                if allergen and allergen in meal_name:
-                    has_allergen = True
-                    break
-            if has_allergen:
+            meal_name = (meal.get("item_name") or "").lower()
+            meal_text = f"{meal_name} {meal.get('description') or ''}"
+
+            # Allergies arrive as broad labels ("Nuts", "Dairy") that never
+            # appear literally in a dish name — expand them into the
+            # ingredient words that signal them (see agent/allergens.py).
+            # The old check compared the raw, capitalized label as a
+            # substring, so no allergy ever filtered anything.
+            if find_allergen_conflicts(meal_text, allergies):
                 continue # Hard skip on allergen matches
-                
+
             has_dislike = False
             for dislike in dislikes:
-                if dislike and dislike in meal_name:
+                if dislike and dislike.strip().lower() in meal_name:
                     has_dislike = True
                     break
             if has_dislike:

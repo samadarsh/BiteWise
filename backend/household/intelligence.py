@@ -15,6 +15,7 @@ from backend.household.models import Household, HouseholdMember
 from backend.pantry.models import PantryItem
 from backend.grocery.models import GroceryList, GroceryListItem
 from backend.pantry.templates import get_category_default_expiry_days
+from agent.allergens import canonical_allergen, find_allergen_conflicts, violates_vegan
 
 
 # ──────────────────────────────────────────────
@@ -302,7 +303,7 @@ RECIPE_TEMPLATES: List[Dict[str, Any]] = [
         "name": "Protein Oats Bowl",
         "tag": "High-protein breakfast",
         "diet": "veg",
-        "allergens": [],
+        "allergens": ["peanuts", "dairy"],
         "ingredients": [
             {"name": "oats", "qty": 0.1, "unit": "kg"},
             {"name": "milk", "qty": 0.25, "unit": "L"},
@@ -557,6 +558,7 @@ def suggest_cookable_recipes(
                 household_allergies.add(a.lower())
 
     has_vegetarian = "vegetarian" in household_diets or "vegan" in household_diets
+    has_vegan = "vegan" in household_diets
 
     # 3. Score each recipe
     suggestions: List[Dict[str, Any]] = []
@@ -571,9 +573,25 @@ def suggest_cookable_recipes(
             })
             continue
 
-        # Allergen filter
-        recipe_allergens = {a.lower() for a in recipe.get("allergens", [])}
-        allergen_conflict = recipe_allergens & household_allergies
+        # Vegan: vegetarian recipes can still contain dairy/eggs/honey,
+        # which the veg/non-veg flag alone never caught.
+        recipe_text = " ".join([recipe["name"]] + [ing["name"] for ing in recipe["ingredients"]])
+        if has_vegan and violates_vegan(recipe_text):
+            skipped.append({
+                "recipe": recipe["name"],
+                "reason": "Household has vegan member(s) — contains dairy or eggs",
+            })
+            continue
+
+        # Allergen filter — checks the recipe's declared allergens AND its
+        # actual ingredients (e.g. "peanut butter" trips a "peanuts" or
+        # "nuts" allergy even when the template forgot to declare it), with
+        # typed spellings normalized ("peanut" == "peanuts", "milk" == "dairy").
+        declared = {canonical_allergen(a) for a in recipe.get("allergens", [])}
+        allergen_conflict = sorted({
+            a for a in household_allergies
+            if canonical_allergen(a) in declared or find_allergen_conflicts(recipe_text, [a])
+        })
         if allergen_conflict:
             skipped.append({
                 "recipe": recipe["name"],

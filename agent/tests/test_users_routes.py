@@ -68,3 +68,29 @@ def test_put_profile_rejects_out_of_range_values():
         }
         res = client.put("/me/profile", json=payload, headers=auth_headers)
         assert res.status_code == 422
+
+
+def test_out_of_range_weight_is_rejected_and_never_breaks_profile():
+    """Regression: /coach/weight accepted up to 500kg while the profile schema
+    only allows 30-250, so logging 25kg made GET /me/profile 500 forever."""
+    import os
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    from backend.db.session import SessionLocal
+    from backend.db.models import UserProfile
+
+    os.environ["USE_MOCK_MCP"] = "true"
+    with TestClient(app) as client:
+        guest = client.post("/auth/guest").json()
+        headers = {"Authorization": f"Bearer {guest['session_token']}"}
+        assert client.post("/coach/weight", json={"weight_kg": 25}, headers=headers).status_code == 422
+
+        db = SessionLocal()
+        try:
+            db.query(UserProfile).filter(UserProfile.user_id == guest["user_id"]).update({"weight_kg": 25})
+            db.commit()
+        finally:
+            db.close()
+        res = client.get("/me/profile", headers=headers)
+        assert res.status_code == 200
+        assert res.json()["weight_kg"] is None

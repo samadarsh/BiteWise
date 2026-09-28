@@ -57,7 +57,7 @@ def safe_delete_user_household(db: Session, user_id: str):
         db.query(Household).filter(Household.id == hh_id).delete()
 
 @router.post("/reset")
-async def reset_demo_data(
+def reset_demo_data(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -115,7 +115,7 @@ async def reset_demo_data(
         raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
 
 @router.post("/seed")
-async def seed_demo_data(
+def seed_demo_data(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
