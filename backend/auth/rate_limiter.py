@@ -11,7 +11,11 @@ def resolve_client_ip(request: Request) -> str:
     """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        client = forwarded.split(",")[0].strip()
+        # The RIGHT-most entry is the one our own proxy appended, i.e. the
+        # address that actually connected to it. The left-most is whatever
+        # the client claimed — trusting it let anyone dodge the limit by
+        # sending a fresh fake X-Forwarded-For on every request.
+        client = forwarded.split(",")[-1].strip()
         if client:
             return client
     return request.client.host if request.client else "unknown"
@@ -29,6 +33,9 @@ class SlidingWindowRateLimiter:
     def is_rate_limited(self, key: str) -> bool:
         now = time.time()
         cutoff = now - self.window_seconds
+        # Drop idle keys now and then so the dict doesn't grow forever.
+        if len(self.history) > 10000:
+            self.history = {k: v for k, v in self.history.items() if v and v[-1] > cutoff}
         timestamps = self.history.get(key, [])
         timestamps = [t for t in timestamps if t > cutoff]
         self.history[key] = timestamps

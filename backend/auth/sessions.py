@@ -1,6 +1,10 @@
 import os
+import base64
+import binascii
 import hmac
 import hashlib
+import secrets
+import time
 from typing import Optional
 from fastapi import Request, HTTPException, Response
 from fastapi.security import APIKeyCookie
@@ -81,6 +85,45 @@ def verify_session(value: Optional[str]) -> Optional[str]:
     return None
 
 
+OAUTH_STATE_MAX_AGE_SECONDS = 600
+
+
+def sign_oauth_state(user_id: str, now: Optional[float] = None) -> str:
+    """Build a Swiggy OAuth `state` value that binds the flow to the BiteWise
+    user who started it: `<nonce>.<user_id>.<issued_at>.<hmac>`.
+
+    The callback trusts the user id only because this server signed it —
+    previously state was the plain string `<random>:<user_id>`, so anyone
+    could hand-craft a state naming another user and be logged in as them."""
+    nonce = secrets.token_urlsafe(16)
+    issued_at = int(now if now is not None else time.time())
+    payload = f"{nonce}.{user_id}.{issued_at}"
+    sig = hmac.new(_get_session_secret(), f"oauth_state:{payload}".encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
+
+
+def verify_oauth_state(state: Optional[str], now: Optional[float] = None) -> Optional[str]:
+    """Return the user id from a state produced by sign_oauth_state, or None
+    if it is malformed, tampered with, or older than OAUTH_STATE_MAX_AGE_SECONDS."""
+    if not state or state.count(".") < 3:
+        return None
+    payload, _, sig = state.rpartition(".")
+    nonce, _, rest = payload.partition(".")
+    user_id, _, issued_raw = rest.rpartition(".")
+    if not nonce or not user_id or not issued_raw.isdigit():
+        return None
+    try:
+        expected = hmac.new(_get_session_secret(), f"oauth_state:{payload}".encode("utf-8"), hashlib.sha256).hexdigest()
+    except Exception:
+        return None
+    if not hmac.compare_digest(sig, expected):
+        return None
+    age = (now if now is not None else time.time()) - int(issued_raw)
+    if age < 0 or age > OAUTH_STATE_MAX_AGE_SECONDS:
+        return None
+    return user_id
+
+
 def set_session_cookies(request: Request, response: Response, user_id: str, max_age: int = 30 * 86400) -> None:
     is_secure = should_use_secure_cookies(request)
     samesite = "none" if is_secure else "lax"
@@ -123,8 +166,17 @@ def _get_encryption_key() -> bytes:
     key_bytes = key_str.encode("utf-8")
     if len(key_bytes) == 32:
         return key_bytes
-        
-    raise ValueError("ENCRYPTION_KEY must be exactly 32 bytes (or 64 hex characters).")
+
+    # Base64 of 32 random bytes — what render.yaml's `generateValue: true`
+    # produces; previously rejected, which broke Swiggy connect on Render.
+    try:
+        decoded = base64.b64decode(key_str, validate=True)
+        if len(decoded) == 32:
+            return decoded
+    except (ValueError, binascii.Error):
+        pass
+
+    raise ValueError("ENCRYPTION_KEY must be 32 bytes: 64 hex characters, 32 raw characters, or base64 of 32 bytes.")
 
 
 def encrypt_token(plain_token: str) -> bytes:
@@ -156,15 +208,20 @@ def decrypt_token(encrypted_token_bytes: bytes) -> str:
 
 
 async def get_current_user_id(request: Request, strict: bool = False) -> str:
+    """FastAPI dependency wrapper — see resolve_current_user_id."""
+    return resolve_current_user_id(request, strict=strict)
+
+
+def resolve_current_user_id(request: Request, strict: bool = False) -> str:
     """
     Resolve the authenticated user from the request.
 
-    Production/staging: only a validly HMAC-signed session token (delivered via the
-    session cookie or an Authorization Bearer header) is trusted. Unsigned values and
-    the x-user-id / ?user_id inputs are ignored, so identity cannot be spoofed.
+    Only a validly HMAC-signed session token (delivered via the session cookie
+    or an Authorization Bearer header) is trusted. Unsigned values and the
+    x-user-id / ?user_id inputs are ignored, so identity cannot be spoofed.
 
-    Mock/development: unsigned identifiers are additionally accepted so local demos
-    and tests keep working without a real login.
+    Mock mode only adds one convenience: a request with no session at all
+    (and strict=False) falls back to the shared "demo_user" account.
     """
     settings = get_settings()
     is_mock = settings.use_mock_mcp
@@ -176,20 +233,16 @@ async def get_current_user_id(request: Request, strict: bool = False) -> str:
     if auth_header and auth_header.lower().startswith("bearer "):
         bearer_val = auth_header[7:].strip()
 
-    header_val = request.headers.get("x-user-id") or request.query_params.get("user_id")
-
-    # 1. Trusted path (all environments): a validly-signed session token.
+    # Only a validly-signed session token is ever trusted — in every mode.
+    # Mock mode used to also accept an unsigned cookie/Bearer/x-user-id/
+    # ?user_id value, which let anyone act as any user on the public demo
+    # instance just by knowing (or guessing) their user id.
     session_id = None
     for candidate in (cookie_val, bearer_val):
         verified = verify_session(candidate)
         if verified:
             session_id = verified
             break
-
-    # 2. Dev/mock-only convenience: accept unsigned identifiers (legacy localStorage
-    #    flow, direct header/query in tests). Never reachable in staging/production.
-    if not session_id and is_mock:
-        session_id = cookie_val or bearer_val or header_val
 
     if not session_id:
         if is_mock and not strict:

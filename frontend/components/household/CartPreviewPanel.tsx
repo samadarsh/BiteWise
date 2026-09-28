@@ -109,7 +109,7 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
       <div className="bg-surface backdrop-blur-md border border-border rounded-2xl p-6 shadow-xl flex flex-col gap-6">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 border-b border-border pb-4">
           <div>
-            <span className="text-[10px] sm:text-xs bg-pantry/10 text-pantry border border-pantry/20 font-bold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full uppercase tracking-wider">Order Placed</span>
+            <span className="text-[10px] sm:text-xs bg-pantry/10 text-pantry border border-pantry/20 font-bold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full uppercase tracking-wider">{placedOrder.partial ? "Partly Placed" : "Order Placed"}</span>
             <h3 className="text-lg font-bold mt-2 text-text">Tracking {placedOrder.order_id}</h3>
           </div>
           <div className="sm:text-right">
@@ -118,6 +118,7 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
           </div>
         </div>
 
+        <p className="text-[10px] text-subtle -mb-2">Illustrative progress only — BiteWise doesn&apos;t receive live delivery updates yet. Check the Swiggy app for real-time tracking.</p>
         <div className="relative w-full my-2 px-1 sm:px-8 overflow-visible">
           <div className="absolute left-[12.5%] right-[12.5%] top-4 sm:top-5 h-1 bg-border rounded-full" />
           <div className="absolute left-[12.5%] top-4 sm:top-5 h-1 bg-pantry rounded-full transition-all duration-1000" style={{ width: `${Math.min(75, Math.max(0, (trackingStep / 3) * 75))}%` }} />
@@ -143,6 +144,12 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
             })}
           </div>
         </div>
+
+        {placedOrder.partial && (
+          <div className="bg-warning/10 border border-warning/20 rounded-xl p-3 text-xs text-text">
+            ⚠️ {placedOrder.message || "Only part of this order went through — check your Swiggy app."}
+          </div>
+        )}
 
         {placedOrder.restocked_to_full.length > 0 && (
           <div className="bg-success/10 border border-success/20 rounded-xl p-3 text-xs text-success">
@@ -183,7 +190,13 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
         ) : (
           <select
             value={selectedAddress}
-            onChange={(e) => setSelectedAddress(e.target.value)}
+            onChange={(e) => {
+              setSelectedAddress(e.target.value);
+              // Instamart pricing/availability is per-address — a preview
+              // built for another address (or none) must not be confirmed.
+              setPreview(null);
+              setCheckoutConfirmed(false);
+            }}
             className="min-w-0 flex-1 truncate text-sm font-bold text-text bg-surface border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-pantry cursor-pointer"
           >
             <option value="" disabled>
@@ -258,7 +271,7 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
 
               <label className="flex items-center gap-3 cursor-pointer select-none border border-border rounded-xl p-3 bg-surface-2 hover:bg-surface-3 transition">
                 <input type="checkbox" checked={checkoutConfirmed} onChange={(e) => setCheckoutConfirmed(e.target.checked)} className="accent-pantry h-4 w-4 rounded cursor-pointer" />
-                <div className="text-xs"><p className="font-semibold text-text">I confirm these details are correct</p><p className="text-subtle text-[10px] mt-0.5">Orders are only placed after your explicit confirmation.</p></div>
+                <div className="text-xs"><p className="font-semibold text-text">I confirm these details are correct</p><p className="text-subtle text-[10px] mt-0.5">Orders are only placed after your explicit confirmation. This replaces anything already in your Instamart cart.</p></div>
               </label>
 
               {placeError && <p className="text-xs text-danger">{placeError}</p>}

@@ -9,7 +9,17 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from backend.db.session import get_db
 from backend.db.models import User, SwiggyToken, UserProfile, SwiggyClientRegistration
-from backend.auth.sessions import encrypt_token, get_current_user_id, set_session_cookies, should_use_secure_cookies, sign_session
+from backend.auth.sessions import (
+    resolve_current_user_id,
+    encrypt_token,
+    get_current_user_id,
+    set_session_cookies,
+    should_use_secure_cookies,
+    sign_oauth_state,
+    sign_session,
+    verify_oauth_state,
+    verify_session,
+)
 from backend.auth.rate_limiter import mutating_rate_limiter
 from config.settings import get_settings
 from agent.observability import log_error
@@ -89,7 +99,7 @@ def _get_or_register_swiggy_client(db: Session) -> str:
     return client_id
 
 @router.get("/swiggy/start")
-async def start_swiggy_oauth(
+def start_swiggy_oauth(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
@@ -110,12 +120,11 @@ async def start_swiggy_oauth(
     else:
         client_id = _get_or_register_swiggy_client(db)
 
-    user_id = await get_current_user_id(request, strict=True)
+    user_id = resolve_current_user_id(request, strict=True)
     secure_cookie = should_use_secure_cookies(request)
     samesite_setting = "none" if secure_cookie else "lax"
 
-    state_token = secrets.token_urlsafe(16)
-    state = f"{state_token}:{user_id}"
+    state = sign_oauth_state(user_id)
     verifier, challenge = generate_pkce_pair()
 
     # Set cookies with short 10-minute expiry
@@ -160,7 +169,7 @@ async def start_swiggy_oauth(
     }
 
 @router.get("/swiggy/callback")
-async def swiggy_oauth_callback(
+def swiggy_oauth_callback(
     request: Request,
     response: Response,
     code: str = Query(..., description="Authorization code returned by Swiggy"),
@@ -196,35 +205,41 @@ async def swiggy_oauth_callback(
         redirect_res.delete_cookie("oauth_state")
         return redirect_res
 
-    # State validation
-    if not _is_mock_mode() or return_json or oauth_state:
-        if not oauth_state or state != oauth_state:
-            return handle_error(
-                400,
-                "OAuth state parameter mismatch or session expired. Potential CSRF detected."
-            )
+    # CSRF check — always, in every mode: the state echoed back by Swiggy
+    # must equal the one this browser was given by /auth/swiggy/start.
+    if not oauth_state or state != oauth_state:
+        return handle_error(
+            400,
+            "OAuth state parameter mismatch or session expired. Potential CSRF detected."
+        )
 
-        if not _is_mock_mode() and not oauth_code_verifier:
-            return handle_error(
-                400,
-                "OAuth code verifier session expired or missing."
-            )
+    if not _is_mock_mode() and not oauth_code_verifier:
+        return handle_error(
+            400,
+            "OAuth code verifier session expired or missing."
+        )
 
-    # Resolve active BiteWise user session
-    session_user_id = None
-    if state and ":" in state:
-        session_user_id = state.split(":", 1)[1]
-
-    if not session_user_id:
-        try:
-            session_user_id = await get_current_user_id(request, strict=True)
-        except Exception:
-            session_user_id = bitewise_session or nutriorder_session
-
+    # The BiteWise user comes only from a state this server signed in
+    # /auth/swiggy/start — never from anything the caller can write freely.
+    session_user_id = verify_oauth_state(state)
     if not session_user_id:
         return handle_error(
             401,
             "Must be logged into BiteWise before connecting your Swiggy account."
+        )
+
+    # If the browser also carries a live BiteWise session, it must be the same
+    # user that started the flow (stops a stolen state from linking a Swiggy
+    # account onto whoever happens to open the link).
+    current_session_user = None
+    for candidate in (bitewise_session, nutriorder_session):
+        current_session_user = verify_session(candidate)
+        if current_session_user:
+            break
+    if current_session_user and current_session_user != session_user_id:
+        return handle_error(
+            401,
+            "This Swiggy connection was started by a different BiteWise account. Please try again."
         )
 
     user = db.query(User).filter(User.id == session_user_id).first()
@@ -234,7 +249,9 @@ async def swiggy_oauth_callback(
             "BiteWise session was not found. Please sign in again before connecting Swiggy."
         )
 
-    if not _is_mock_mode() and code != "mock_code":
+    # Live mode always exchanges the code with Swiggy — "mock_code" used to
+    # fabricate a fake token here even with USE_MOCK_MCP=false.
+    if not _is_mock_mode():
         import requests
 
         # Swiggy OAuth 2.1 PKCE token exchange payload — matches the documented
@@ -294,25 +311,26 @@ async def swiggy_oauth_callback(
 
     db.commit()
 
+    # No BiteWise session cookie is issued here: the user is already logged
+    # in (that's how /auth/swiggy/start knew who they were). Issuing one from
+    # this unauthenticated GET is what turned a forged state into a login.
     if return_json:
-        set_session_cookies(request, response, user.id, max_age=432000)
         clean_cookies()
         return {
             "success": True,
             "user_id": user.id,
             "message": "Authenticated successfully. Encrypted credentials saved in DB.",
-            "expires_in_seconds": 432000
+            "expires_in_seconds": expires_in
         }
     else:
         redirect_res = RedirectResponse(url=f"{settings.frontend_base_url}/app")
-        set_session_cookies(request, redirect_res, user.id, max_age=432000)
         # Clean oauth verifier/state cookies on successful redirect
         redirect_res.delete_cookie("oauth_code_verifier")
         redirect_res.delete_cookie("oauth_state")
         return redirect_res
 
 @router.post("/demo-login")
-async def demo_login(request: Request, response: Response, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def demo_login(request: Request, response: Response, db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     Demo login endpoint for mock-mode testing.
     Auto-provisions a demo user and attaches the session cookie.
@@ -364,7 +382,7 @@ async def demo_login(request: Request, response: Response, db: Session = Depends
     }
 
 @router.get("/swiggy/status")
-async def swiggy_status(db: Session = Depends(get_db)) -> Dict[str, Any]:
+def swiggy_status(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     Checks configuration completeness and staging credentials readiness without leaking secrets.
     """

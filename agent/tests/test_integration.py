@@ -125,14 +125,14 @@ def test_real_schema_arguments():
     spy = MockMCPClientSpy()
     spy.update_food_cart(
         restaurantId="rest_1",
-        cartItems=[{"itemId": "item_1", "quantity": 1}],
+        cartItems=[{"menu_item_id": "item_1", "quantity": 1}],
         addressId="addr_home",
         restaurantName="Protein Bowl Co"
     )
 
     assert spy.last_tool == "update_food_cart"
     assert spy.last_args["restaurantId"] == "rest_1"
-    assert spy.last_args["cartItems"] == [{"itemId": "item_1", "quantity": 1}]
+    assert spy.last_args["cartItems"] == [{"menu_item_id": "item_1", "quantity": 1}]
     assert spy.last_args["addressId"] == "addr_home"
     assert spy.last_args["restaurantName"] == "Protein Bowl Co"
 
@@ -351,14 +351,14 @@ def test_mock_swiggy_cart_is_per_user_and_request_safe():
         first_request = ProductionSwiggyClient(user_id="mock_cart_user_a")._get_initialized_client()
         first_request.update_food_cart(
             restaurantId="rest_1",
-            cartItems=[{"itemId": "item_1", "quantity": 1}],
+            cartItems=[{"menu_item_id": "item_1", "quantity": 1}],
             addressId="addr_home",
         )
 
         second_request = ProductionSwiggyClient(user_id="mock_cart_user_a")._get_initialized_client()
         cart = second_request.get_food_cart(addressId="addr_home")
         assert cart["restaurantId"] == "rest_1"
-        assert cart["cartItems"][0]["itemId"] == "item_1"
+        assert cart["cartItems"][0]["menu_item_id"] == "item_1"
         assert cart["total"] == 289
         assert cart["bill"]["total"] == 289
 
@@ -542,7 +542,7 @@ def test_production_checkout_validation_rules():
         db.commit()
 
         from fastapi import HTTPException
-        err = assert_raises(HTTPException, asyncio.run, place_order("test_check_sess", True, "test_check_user", db))
+        err = assert_raises(HTTPException, place_order, "test_check_sess", True, "test_check_user", db)
         assert err.status_code == 400
         assert "expected USER_CONFIRMED" in err.detail
 
@@ -561,7 +561,7 @@ def test_production_checkout_validation_rules():
         ProductionSwiggyClient._get_initialized_client = mock_init
 
         try:
-            err = assert_raises(HTTPException, asyncio.run, place_order("test_check_sess", True, "test_check_user", db))
+            err = assert_raises(HTTPException, place_order, "test_check_sess", True, "test_check_user", db)
             assert err.status_code == 400
             assert "exceeds the Swiggy Builders Club cap" in err.detail
             # Ensure state moved to FAILED
@@ -572,22 +572,25 @@ def test_production_checkout_validation_rules():
             sess.status = OrderStatus.USER_CONFIRMED.value
             db.commit()
 
-            # 3. Block: Recent duplicate order (within last 5 minutes)
+            # 3. Block: another of this user's sessions placed an order
+            #    seconds ago (double-submit from a second tab).
             mock_client.cart_total = 450
-            mock_client.recent_order_time_offset = 60  # 1 minute ago
-            err = assert_raises(HTTPException, asyncio.run, place_order("test_check_sess", True, "test_check_user", db))
+            just_placed = OrderSession(id="test_check_sess_other", user_id="test_check_user", status=OrderStatus.ORDER_PLACED.value)
+            db.add(just_placed)
+            db.commit()
+            err = assert_raises(HTTPException, place_order, "test_check_sess", True, "test_check_user", db)
             assert err.status_code == 409
             assert "Duplicate prevention active" in err.detail
-
             db.refresh(sess)
-            assert sess.status == OrderStatus.FAILED.value
-
-            # 4. Success: total < 1000, no duplicates
-            sess.status = OrderStatus.USER_CONFIRMED.value
+            assert sess.status == OrderStatus.USER_CONFIRMED.value  # untouched, can retry
+            db.delete(just_placed)
             db.commit()
-            mock_client.recent_order_time_offset = None  # no recent order
 
-            res = asyncio.run(place_order("test_check_sess", True, "test_check_user", db))
+            # 4. Success: an OLDER Swiggy order already on the account must
+            #    not block a new one (it used to — forever).
+            mock_client.recent_order_time_offset = 3600
+
+            res = place_order("test_check_sess", True, "test_check_user", db)
             assert res["success"] is True
             assert res["order_id"] == "order_ok"
             assert res["status"] == OrderStatus.ORDER_PLACED.value
@@ -661,7 +664,7 @@ def test_recommendations_search_endpoint():
 
         try:
             # Run search (query = "chicken salad")
-            res = asyncio.run(search_recommendations("test_rec_sess", "chicken salad", "test_rec_user", db))
+            res = search_recommendations("test_rec_sess", "chicken salad", "test_rec_user", db)
             assert res["success"] is True
             assert res["status"] == OrderStatus.RECOMMENDATIONS_READY.value
             assert res["results"]["success"] is True
@@ -722,40 +725,40 @@ def test_complete_journey_routes():
 
         try:
             # 1. Start Session
-            res = asyncio.run(start_order_session("journey_user", db))
+            res = start_order_session("journey_user", db)
             session_id = res["session_id"]
             assert res["status"] == OrderStatus.START.value
 
             # 2. Select Address
-            res = asyncio.run(select_address(session_id, "addr_office", "journey_user", db))
+            res = select_address(session_id, "addr_office", "journey_user", db)
             assert res["status"] == OrderStatus.ADDRESS_SELECTED.value
 
             # 2.5 Search Recommendations (transitions ADDRESS_SELECTED -> SEARCHING -> RECOMMENDATIONS_READY)
             from backend.recommendations.routes import search_recommendations
-            res = asyncio.run(search_recommendations(session_id, "paneer", "journey_user", db))
+            res = search_recommendations(session_id, "paneer", "journey_user", db)
             assert res["status"] == OrderStatus.RECOMMENDATIONS_READY.value
             assert res["results"]["success"] is True
             assert len(res["results"]["recommendations"]) > 0
 
             # 3. Select Item (Simulating search results matching and clicking paneer bowl)
-            res = asyncio.run(select_item(session_id, "rest_paneer", "item_paneer_bowl", "journey_user", db))
+            res = select_item(session_id, "rest_paneer", "item_paneer_bowl", "journey_user", db)
             assert res["status"] == OrderStatus.ITEM_SELECTED.value
 
             # 4. Sync Cart (adds to Swiggy cart)
-            res = asyncio.run(sync_cart(session_id, "journey_user", db))
+            res = sync_cart(session_id, "journey_user", db)
             assert res["status"] == OrderStatus.CART_UPDATED.value
             assert res["cart"]["total"] == 250
 
             # 5. Review Cart
-            res = asyncio.run(review_cart(session_id, "journey_user", db))
+            res = review_cart(session_id, "journey_user", db)
             assert res["status"] == OrderStatus.CART_REVIEW_READY.value
 
             # 6. Confirm Order details
-            res = asyncio.run(confirm_order_details(session_id, "journey_user", db))
+            res = confirm_order_details(session_id, "journey_user", db)
             assert res["status"] == OrderStatus.USER_CONFIRMED.value
 
             # 7. Place Order
-            res = asyncio.run(place_order(session_id, True, "journey_user", db))
+            res = place_order(session_id, True, "journey_user", db)
             assert res["success"] is True
             assert res["order_id"] == "order_ok"
             assert res["status"] == OrderStatus.ORDER_PLACED.value
@@ -1046,6 +1049,63 @@ def test_food_cart_restaurant_switch_requires_confirmation():
         )
         assert confirmed.status_code == 200
         assert confirmed.json()["cart"]["restaurantId"] == "rest_2"
+
+
+def test_session_recovers_after_failure_instead_of_crashing():
+    """Regression: confirmed live against real Swiggy staging — a cart sync
+    failing (e.g. the item just went unavailable) left the session FAILED;
+    retrying with a different item then crashed with a raw 500
+    (ValueError: Illegal state transition from FAILED to ITEM_SELECTED),
+    and a second real failure on that retry crashed again trying to
+    transition FAILED -> FAILED. Both must now recover cleanly instead."""
+    import os
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    from backend.db.session import SessionLocal
+    from backend.db.models import OrderSession
+    from backend.orders.state_machine import mark_session_failed, OrderStatus
+
+    os.environ["USE_MOCK_MCP"] = "true"  # /auth/demo-login is mock-mode only
+    with TestClient(app) as client:
+        login = client.post("/auth/demo-login")
+        assert login.status_code == 200
+        client.post("/demo/reset")
+
+        start = client.post("/orders/session/start")
+        session_id = start.json()["session_id"]
+        client.post(f"/orders/session/{session_id}/select-address", params={"address_id": "addr_home"})
+        client.post("/recommendations/search", json={"session_id": session_id, "query": "chicken"})
+        client.post(
+            f"/orders/session/{session_id}/select-item",
+            params={"restaurant_id": "rest_1", "item_id": "item_1"},
+        )
+
+        # Force the session into FAILED, exactly as a real cart-sync failure
+        # (e.g. an unavailable item) leaves it.
+        db = SessionLocal()
+        try:
+            record = db.query(OrderSession).filter(OrderSession.id == session_id).first()
+            record.status = OrderStatus.FAILED.value
+            db.commit()
+
+            # A session already FAILED must not crash when marked FAILED again.
+            db.refresh(record)
+            result = mark_session_failed(db, record)
+            assert result.status == OrderStatus.FAILED.value
+        finally:
+            db.close()
+
+        # Retrying with a different item must recover, not crash.
+        retry = client.post(
+            f"/orders/session/{session_id}/select-item",
+            params={"restaurant_id": "rest_2", "item_id": "item_3"},
+        )
+        assert retry.status_code == 200
+        assert retry.json()["status"] == "ITEM_SELECTED"
+
+        cart = client.post(f"/orders/session/{session_id}/cart")
+        assert cart.status_code == 200
+        assert cart.json()["cart"]["restaurantId"] == "rest_2"
 
 def test_sprint4_checkout_recovery_and_failing_closed():
     """Verify that place_order_safely only recovers on 5xx/timeouts, failing closed on 4xx/safety lock."""

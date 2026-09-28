@@ -607,3 +607,36 @@ def test_mark_purchased_restocks_pantry():
             db.commit()
         db.close()
         app.dependency_overrides.pop(get_current_user_id, None)
+
+
+def test_mark_purchased_cannot_touch_another_households_items():
+    """Regression: /pantry/mark-purchased looked grocery items up by id alone."""
+    import os
+    from fastapi.testclient import TestClient
+    from backend.main import app
+
+    os.environ["USE_MOCK_MCP"] = "true"
+    with TestClient(app) as victim, TestClient(app) as attacker:
+        victim.post("/auth/guest")
+        attacker.post("/auth/guest")
+        victim.post("/grocery-list/items", json={"item_name": "Victim Item"})
+        item_id = victim.get("/grocery-list").json()["items"][0]["id"]
+
+        res = attacker.post("/pantry/mark-purchased", json={"item_ids": [item_id]})
+        assert res.json()["marked_purchased"] == []
+        assert victim.get("/grocery-list").json()["items"][0]["is_purchased"] is False
+
+
+def test_kitchen_shopping_lists_are_not_mistaken_for_recipe_browsing():
+    """Regression: substring cue matching read "wheat" as "eat" and
+    "vegetables" as "veg", sending plain shopping lists to recipe browsing."""
+    import os
+    from fastapi.testclient import TestClient
+    from backend.main import app
+
+    os.environ["USE_MOCK_MCP"] = "true"
+    with TestClient(app) as client:
+        client.post("/auth/guest")
+        for query in ("wheat flour, sugar", "vegetables, milk", "meat, bread"):
+            assert client.post("/household/kitchen/resolve", json={"query": query}).json()["intent"] == "grocery_item", query
+        assert client.post("/household/kitchen/resolve", json={"query": "what can I cook tonight"}).json()["intent"] == "browse"

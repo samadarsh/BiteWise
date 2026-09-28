@@ -5,7 +5,7 @@ from backend.auth.sessions import get_current_user_id
 from backend.auth.rate_limiter import mutating_rate_limiter
 from backend.db.session import get_db
 from backend.db.models import OrderSession
-from backend.orders.state_machine import OrderStatus, transition_session_status
+from backend.orders.state_machine import OrderStatus, transition_session_status, mark_session_failed, IllegalTransitionError
 from backend.mcp.swiggy_client import ProductionSwiggyClient
 from agent.memory import UserMemoryManager
 from agent.personalization import PersonalizationEngine
@@ -18,7 +18,7 @@ from backend.recommendations.models import SearchRequestSchema
 from backend.db.models import UserProfile
 
 @router.post("/search")
-async def search_recommendations(
+def search_recommendations(
     request: Union[SearchRequestSchema, str],
     query: Optional[str] = None,
     user_id: str = Depends(get_current_user_id),
@@ -58,10 +58,12 @@ async def search_recommendations(
         
     # Check transition compatibility
     current_status = OrderStatus(session_record.status)
-    if current_status not in [OrderStatus.START, OrderStatus.ADDRESS_SELECTED, OrderStatus.SEARCHING, OrderStatus.RECOMMENDATIONS_READY]:
+    if current_status == OrderStatus.START:
+        raise HTTPException(status_code=400, detail="Please select a delivery address before searching.")
+    if current_status in (OrderStatus.ORDER_PLACING, OrderStatus.ORDER_PLACED, OrderStatus.TRACKING):
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot query recommendations in state {current_status.value}"
+            detail="This order has already been placed — start a new order to search again."
         )
         
     # Transition status to SEARCHING
@@ -166,11 +168,11 @@ async def search_recommendations(
             "results": results
         }
     except SwiggyAuthError:
-        transition_session_status(db, session_record, OrderStatus.FAILED)
+        mark_session_failed(db, session_record)
         raise
     except HTTPException:
-        transition_session_status(db, session_record, OrderStatus.FAILED)
+        mark_session_failed(db, session_record)
         raise
     except Exception as e:
-        transition_session_status(db, session_record, OrderStatus.FAILED)
+        mark_session_failed(db, session_record)
         raise HTTPException(status_code=500, detail=f"Recommendation query failed: {str(e)}")

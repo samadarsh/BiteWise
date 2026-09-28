@@ -115,98 +115,100 @@ def retry_with_backoff(
         return wrapper
     return decorator
 
+def _order_id(order: dict) -> Any:
+    return order.get("orderId") or order.get("order_id") if isinstance(order, dict) else None
+
+
 def place_order_safely(place_order_fn: Callable[[], dict], check_status_fn: Callable[[], list[dict]]) -> dict:
-    """Safely places an order.
+    """Places a non-idempotent order, recovering safely from ambiguous failures.
 
-    Since placing an order is non-idempotent, we check active food orders first,
-    or verify order status if a previous check indicates a potential double placement risk.
+    Before placing, snapshot the IDs of the user's existing orders. If the
+    placement call then times out / 5xxs, poll the order list and accept
+    only an order whose ID was NOT in that snapshot — that one is ours.
+
+    This replaces two broken heuristics:
+      - blocking placement whenever ANY past order had status
+        "confirmed"/"delivered" (so after one order, every later order was
+        rejected as a "duplicate" forever — and against real Swiggy, whose
+        orders carry `orderStatus`/`isActiveOrder` rather than `status`, it
+        never matched at all);
+      - treating orders[0] as "ours" after a timeout, which could report an
+        old order as a fresh success.
+    Double-submit protection lives in the order route instead (per-session
+    state machine + a short per-user placement window).
     """
-    # Check if there's already an active order placed in the last minute to prevent accidental double-submit
+    snapshot_ok = True
     try:
-        active_orders = check_status_fn()
-        if active_orders:
-            # Check if any order is very recent
-            # (In mock mode or simple client, we can look at the latest order status)
-            for order in active_orders:
-                if order.get("status") in ["confirmed", "cooking", "delivered"] and order.get("is_recent", True):
-                    log_warn("Detected a recent active order. Blocking duplicate placement request.", extra={"order_id": order.get("order_id")})
-                    return {
-                        "success": False,
-                        "message": f"An active order ({order.get('order_id')}) is already in progress. Double placement blocked.",
-                        "order_id": order.get("order_id"),
-                        "already_placed": True
-                    }
+        existing_ids = {_order_id(o) for o in (check_status_fn() or [])}
+        existing_ids.discard(None)
     except Exception as e:
-        # Log and proceed, we don't want check failures to block first-time orders completely
-        log_error(f"Failed to check recent orders before placement: {str(e)}", error_category="upstream_error")
+        snapshot_ok = False
+        existing_ids = set()
+        log_error(f"Failed to snapshot orders before placement: {str(e)}", error_category="upstream_error")
 
-    # Now execute the placement
     log_info("Initiating order placement call...")
-    metrics_tracker.record_order(success=True) # Will override if fails
 
     try:
-        res = place_order_fn()
-        # Preserve actual message from Swiggy tool call
-        msg = res.get("message") or "Order placed successfully."
-        if res.get("success") or res.get("orderId") or res.get("order_id"):
-            log_info(f"Order placed successfully: {msg}", extra={"order_id": res.get("order_id") or res.get("orderId")})
-            # Ensure unified return fields
-            return {
-                "success": True,
-                "message": msg,
-                "order_id": res.get("order_id") or res.get("orderId"),
-                "status": res.get("status", "confirmed")
-            }
-        else:
-            log_error(f"Order placement rejected by server: {msg}", error_category="domain_failure")
-            metrics_tracker.record_order(success=False)
-            return res
+        res = place_order_fn() or {}
     except Exception as e:
-        # Check if the failure is ambiguous (timeout, connection, or 5xx)
         if not is_ambiguous_failure(e):
             log_error(f"Non-ambiguous error during order placement: {str(e)}. Failing fast.", error_category="domain_failure")
+            metrics_tracker.record_order(success=False)
             raise e
 
-        # A network timeout/5xx occurred *during* placement. We CANNOT simply retry.
-        # We must poll get_food_orders to see if the order went through.
+        # A timeout/5xx *during* placement: the order may or may not exist.
+        # Never retry blindly — look for a new order instead.
         log_error(f"Network error/timeout during order placement: {str(e)}. Verifying placement status...", error_category="network_error")
+        if snapshot_ok:
+            for verify_attempt in range(3):
+                time.sleep(2 * (verify_attempt + 1))
+                try:
+                    for order in check_status_fn() or []:
+                        order_id = _order_id(order)
+                        if order_id and order_id not in existing_ids:
+                            log_warn(f"Verified order placement after timeout. Order ID: {order_id}", extra={"order_id": order_id})
+                            metrics_tracker.record_order(success=True)
+                            return {
+                                "success": True,
+                                "message": order.get("message") or "Order was successfully placed despite connection timeout.",
+                                "order_id": order_id,
+                                "status": order.get("orderStatus") or order.get("status") or "CONFIRMED",
+                                "recovered": True,
+                            }
+                except Exception as check_err:
+                    log_error(f"Failed status verification poll {verify_attempt + 1}: {str(check_err)}", error_category="upstream_error")
+
         metrics_tracker.record_order(success=False)
-
-        # Poll up to 3 times to verify status
-        for verify_attempt in range(3):
-            time.sleep(2 * (verify_attempt + 1))
-            try:
-                orders = check_status_fn()
-                if orders:
-                    # Look for a recently placed order (within the last 60 seconds)
-                    # or simply the latest order returned if no timestamp is present
-                    latest_order = orders[0]
-                    order_id = latest_order.get("orderId") or latest_order.get("order_id")
-
-                    # Verify if timestamp is recent (less than 60s ago)
-                    timestamp = latest_order.get("timestamp", 0)
-                    is_recent = True
-                    if timestamp:
-                        if (time.time() - timestamp) > 60:
-                            is_recent = False
-
-                    if is_recent:
-                        log_warn(
-                            f"Verified order placement status. Found recent order ID: {order_id}",
-                            extra={"order_id": order_id, "status": latest_order.get("status")}
-                        )
-                        return {
-                            "success": True,
-                            "message": latest_order.get("message") or "Order was successfully placed despite connection timeout.",
-                            "order_id": order_id,
-                            "status": latest_order.get("status", "confirmed"),
-                            "recovered": True
-                        }
-            except Exception as check_err:
-                log_error(f"Failed status verification poll {verify_attempt + 1}: {str(check_err)}", error_category="upstream_error")
-
         return {
             "success": False,
-            "message": "Order placement timed out and status verification failed. Please check active orders manually.",
-            "error_type": "placement_uncertain"
+            "message": "Order placement timed out and we couldn't confirm whether it went through. Check your Swiggy app before trying again.",
+            "error_type": "placement_uncertain",
         }
+
+    msg = res.get("message") or "Order placed successfully."
+    status = str(res.get("status") or "").upper()
+    # Per the place_food_order docs, a UPI order comes back
+    # status="PENDING_PAYMENT" and is NOT placed yet.
+    if status == "PENDING_PAYMENT" or res.get("normalizedStatus") == "pending":
+        metrics_tracker.record_order(success=False)
+        return {
+            "success": False,
+            "message": "Payment is still pending — the order isn't placed yet. Complete payment in your UPI app.",
+            "order_id": _order_id(res),
+            "error_type": "payment_pending",
+        }
+
+    order_id = _order_id(res)
+    if res.get("success") or order_id:
+        log_info(f"Order placed successfully: {msg}", extra={"order_id": order_id})
+        metrics_tracker.record_order(success=True)
+        return {
+            "success": True,
+            "message": msg,
+            "order_id": order_id,
+            "status": res.get("status", "CONFIRMED"),
+        }
+
+    log_error(f"Order placement rejected by server: {msg}", error_category="domain_failure")
+    metrics_tracker.record_order(success=False)
+    return {"success": False, "message": msg}

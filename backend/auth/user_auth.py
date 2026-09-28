@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
 from backend.db.models import User, UserProfile, SwiggyToken
-from backend.auth.sessions import clear_session_cookies, decrypt_token, get_current_user_id, set_session_cookies, sign_session
+from backend.auth.sessions import resolve_current_user_id, clear_session_cookies, decrypt_token, get_current_user_id, set_session_cookies, sign_session
 from backend.auth.rate_limiter import mutating_rate_limiter
 from config.settings import get_settings
 
@@ -35,7 +35,7 @@ def _is_swiggy_token_valid(token_record: Optional[SwiggyToken]) -> bool:
 
 
 @router.get("/me")
-async def get_my_profile(
+def get_my_profile(
     request: Request,
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
@@ -44,7 +44,7 @@ async def get_my_profile(
     Strictly checks active session cookie (bitewise_session / nutriorder_session).
     """
     try:
-        user_id = await get_current_user_id(request, strict=True)
+        user_id = resolve_current_user_id(request, strict=True)
     except HTTPException:
         return {"authenticated": False, "user": None}
 
@@ -92,7 +92,7 @@ async def get_my_profile(
 
 
 @router.post("/guest")
-async def create_guest_session(
+def create_guest_session(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
@@ -135,7 +135,7 @@ async def create_guest_session(
 
 
 @router.post("/google")
-async def login_with_google(
+def login_with_google(
     payload: GoogleLoginRequest,
     request: Request,
     response: Response,
@@ -151,8 +151,14 @@ async def login_with_google(
     name = payload.name
     avatar_url = payload.avatar_url
 
+    # Unverified demo logins (a "mock_" token, or no token at all) are only
+    # allowed on a mock-mode instance that has NO real Google sign-in
+    # configured. Otherwise real Google accounts exist on this instance and
+    # a caller could claim any of them just by sending its email address.
+    allow_unverified_demo_login = settings.use_mock_mcp and not settings.google_client_id
+
     if payload.id_token:
-        if settings.use_mock_mcp and payload.id_token.startswith("mock_"):
+        if allow_unverified_demo_login and payload.id_token.startswith("mock_"):
             # Mock-mode-only bypass — strictly USE_MOCK_MCP, never APP_ENV
             # (the same conflation bug fixed elsewhere this session: on any
             # local dev machine APP_ENV=development by default, which would
@@ -195,7 +201,7 @@ async def login_with_google(
         # Popup-based OAuth2 implicit flow (google.accounts.oauth2.initTokenClient)
         # yields an access_token, not an id_token — verify it against Google's
         # userinfo endpoint instead of tokeninfo.
-        if settings.use_mock_mcp and payload.access_token.startswith("mock_"):
+        if allow_unverified_demo_login and payload.access_token.startswith("mock_"):
             email = payload.email or "mockgoogleuser@gmail.com"
             name = name or "Mock Google User"
         elif not settings.google_client_id:
@@ -205,6 +211,21 @@ async def login_with_google(
             name = name or "Mock Google User"
         else:
             try:
+                # userinfo alone accepts ANY valid Google access token,
+                # including one issued to a different app — tokeninfo tells
+                # us who the token was issued to, so it can't be replayed
+                # from another site's Google login.
+                audience_res = requests.get(
+                    "https://oauth2.googleapis.com/tokeninfo",
+                    params={"access_token": payload.access_token},
+                    timeout=10
+                )
+                if audience_res.status_code != 200:
+                    raise HTTPException(status_code=401, detail="Google token verification failed.")
+                token_info = audience_res.json()
+                if settings.google_client_id not in (token_info.get("aud"), token_info.get("azp")):
+                    raise HTTPException(status_code=401, detail="Google token audience mismatch.")
+
                 verify_res = requests.get(
                     "https://www.googleapis.com/oauth2/v3/userinfo",
                     headers={"Authorization": f"Bearer {payload.access_token}"},
@@ -225,7 +246,7 @@ async def login_with_google(
                 avatar_url = userinfo.get("picture") or avatar_url
             except requests.exceptions.RequestException as e:
                 raise HTTPException(status_code=502, detail=f"Failed to reach Google OAuth server: {str(e)}")
-    elif settings.use_mock_mcp and payload.email:
+    elif allow_unverified_demo_login and payload.email:
         # Mock-mode-only fallback when id_token is omitted entirely
         email = payload.email
     else:
@@ -290,7 +311,7 @@ async def login_with_google(
 
 
 @router.post("/logout")
-async def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     Revokes the user's Swiggy-side session (best-effort, real mode only) and
     always deletes the local token, then clears BiteWise's own session
@@ -300,7 +321,7 @@ async def logout(request: Request, response: Response, db: Session = Depends(get
     """
     settings = get_settings()
     try:
-        user_id = await get_current_user_id(request, strict=False)
+        user_id = resolve_current_user_id(request, strict=False)
     except Exception:
         user_id = None
 

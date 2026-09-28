@@ -69,7 +69,7 @@ interface NutriOrderContextType {
   coachDashboardRef: React.RefObject<CoachDashboardRef | null>;
 
   // Handlers
-  syncProfileChange: (goal: string, protein: number, calories: number, allergyList: string[]) => Promise<void>;
+  syncProfileChange: (goal: string, protein: number, calories: number, allergyList: string[]) => Promise<boolean>;
   handleAddressSelect: (addrId: string) => Promise<void>;
   handleQuerySearch: (e?: React.FormEvent) => Promise<void>;
   handleMealSelect: (meal: RecommendationMeal) => Promise<void>;
@@ -219,6 +219,8 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
+  const lastDataVersionRef = useRef<number | null>(null);
+
   // Load profile + addresses on mount, on auth change, and after demo seed/reset (dataVersion bump).
   useEffect(() => {
     let cancelled = false;
@@ -238,12 +240,24 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
         loadProfileFields(prof);
         const addrs = await refreshAddresses();
 
+        const hasInflightOrder =
+          !hasRestoredInflightOrderRef.current &&
+          typeof window !== "undefined" &&
+          !!sessionStorage.getItem(INFLIGHT_ORDER_STORAGE_KEY);
+
         if (!hasRestoredAddressRef.current) {
           hasRestoredAddressRef.current = true;
           const savedAddressId = typeof window !== "undefined" ? localStorage.getItem(ADDRESS_STORAGE_KEY) : null;
           const stillValid = savedAddressId && addrs.some((a) => a.id === savedAddressId);
           if (stillValid && !cancelled) {
-            await handleAddressSelect(savedAddressId);
+            if (hasInflightOrder) {
+              // The restored order already has its own session — don't open
+              // a second, empty one (each of those showed up in Order
+              // History as a stray "In-progress session").
+              setSelectedAddress(savedAddressId);
+            } else {
+              await handleAddressSelect(savedAddressId);
+            }
           }
         }
 
@@ -271,8 +285,14 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
       } finally {
         if (!cancelled) setProfileFetching(false);
       }
-      // After a seed/reset, wipe the in-progress order flow and refresh the coach ledger.
-      clearFlowState();
+      // After a seed/reset (dataVersion bump) wipe the in-progress order
+      // flow. Not on the first load: that ran right after restoring the
+      // in-flight order snapshot above and immediately threw it away, so a
+      // page refresh always lost the user's cart.
+      if (lastDataVersionRef.current !== null && lastDataVersionRef.current !== dataVersion) {
+        clearFlowState();
+      }
+      lastDataVersionRef.current = dataVersion;
       coachDashboardRef.current?.refreshCoachData();
     }
     loadUserData();
@@ -291,8 +311,8 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
     }
   }, [editProfileRequested, clearEditProfileRequest]);
 
-  const syncProfileChange = async (goal: string, protein: number, calories: number, allergyList: string[]) => {
-    if (!isAuthenticated) return;
+  const syncProfileChange = async (goal: string, protein: number, calories: number, allergyList: string[]): Promise<boolean> => {
+    if (!isAuthenticated) return false;
     try {
       await api.updateProfile({
         fitness_goal: goal,
@@ -312,8 +332,10 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
         spice_tolerance: profile?.spice_tolerance || "medium",
         priority_weights: priorityWeights,
       });
+      return true;
     } catch (err) {
       console.error("Failed to save profile modifications", err);
+      return false;
     }
   };
 
@@ -599,12 +621,20 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
     setApplicableCoupons([]);
   };
 
-  const handleAllergyToggle = (allergen: string) => {
+  const handleAllergyToggle = async (allergen: string) => {
+    const previous = allergies;
     const nextAllergies = allergies.includes(allergen)
       ? allergies.filter((a) => a !== allergen)
       : [...allergies, allergen];
     setAllergies(nextAllergies);
-    syncProfileChange(fitnessGoal, proteinTarget, calorieTarget, nextAllergies);
+    // Allergies are safety-critical: a failed save used to only log to the
+    // console, leaving the chip looking selected while the server (which
+    // does the filtering) never saw it. Roll back and tell the user.
+    const saved = await syncProfileChange(fitnessGoal, proteinTarget, calorieTarget, nextAllergies);
+    if (!saved) {
+      setAllergies(previous);
+      showAlert("Couldn't save your allergy change — please try again.", "error");
+    }
   };
 
   return (

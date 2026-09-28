@@ -67,6 +67,19 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     if (!pathname?.startsWith("/app/nutriorder")) router.push("/app/nutriorder/preferences");
   };
 
+  // A failed Swiggy connect redirects back to /app?auth_error=<reason>.
+  // Surface it once, then drop the param so a refresh doesn't repeat it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get("auth_error");
+    if (!authError) return;
+    showAlert(`Couldn't connect Swiggy: ${authError}`, "error");
+    params.delete("auth_error");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  }, [showAlert]);
+
   // Alerts are shared shell state (seed/reset, checkout confirmations, etc.) so
   // they survive navigation *within* a product — e.g. Coach's "check the Order
   // page" nudge needs to still be visible after that navigation. They must NOT

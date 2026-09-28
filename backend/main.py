@@ -7,6 +7,7 @@ import time
 from config.settings import get_settings
 from agent.observability import log_info
 from mcp.mcp_client import SwiggyMCPError, SwiggyAuthError
+from backend.orders.state_machine import IllegalTransitionError
 
 # Import database session, engine and trigger models registration
 from backend.db.session import engine, Base
@@ -190,7 +191,11 @@ cors_origins = settings.cors_allowed_origins or ["http://localhost:3000", "http:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    # Only an explicitly configured pattern (e.g. your own Vercel preview
+    # URLs: https://bitewise-[a-z0-9-]+\.vercel\.app). The old hard-coded
+    # https://.*\.vercel\.app let ANY site anyone deploys on Vercel make
+    # credentialed calls with a visitor's BiteWise session.
+    allow_origin_regex=settings.cors_allowed_origin_regex or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -227,6 +232,19 @@ async def swiggy_mcp_error_handler(request: Request, exc: SwiggyMCPError) -> JSO
             pass
         return JSONResponse(status_code=401, content={"error_code": "swiggy_reauth_required", "detail": exc.message})
     return JSONResponse(status_code=exc.status_code or 502, content={"error_code": "swiggy_mcp_error", "detail": exc.message})
+
+@app.exception_handler(IllegalTransitionError)
+async def illegal_transition_handler(request: Request, exc: IllegalTransitionError) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={
+            "error_code": "order_step_out_of_order",
+            "detail": (
+                f"That step isn't available right now (order is at {exc.current.value}). "
+                "Start a new order or pick your meal again."
+            ),
+        },
+    )
 
 # Include modules
 app.include_router(user_auth.router)

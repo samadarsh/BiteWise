@@ -8,10 +8,12 @@ from backend.auth.rate_limiter import mutating_rate_limiter
 from sqlalchemy.orm import Session
 from backend.db.session import get_db
 from backend.db.models import OrderSession
-from backend.orders.state_machine import OrderStatus, validate_state_transition, transition_session_status
-from mcp.mcp_client import SwiggyAuthError, SwiggyMCPError
+from backend.orders.state_machine import OrderStatus, validate_state_transition, transition_session_status, mark_session_failed, IllegalTransitionError, utc_now_naive
+from mcp.mcp_client import SwiggyAuthError, SwiggyMCPError, cart_total
 
 router = APIRouter(prefix="/orders", tags=["Order Sessions"])
+
+RECENT_PLACEMENT_WINDOW_SECONDS = 60
 
 
 class OrderSessionSummary(BaseModel):
@@ -29,7 +31,7 @@ class OrderSessionSummary(BaseModel):
 
 
 @router.get("/sessions", response_model=List[OrderSessionSummary])
-async def list_order_sessions(
+def list_order_sessions(
     limit: int = Query(50, ge=1, le=200),
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -40,7 +42,13 @@ async def list_order_sessions(
     """
     records = (
         db.query(OrderSession)
-        .filter(OrderSession.user_id == user_id)
+        .filter(
+            OrderSession.user_id == user_id,
+            # A session is opened as soon as an address is picked (every
+            # visit to the Order page) — ones that never got further aren't
+            # orders and just cluttered history as "In-progress session".
+            OrderSession.status.notin_([OrderStatus.START.value, OrderStatus.ADDRESS_SELECTED.value]),
+        )
         .order_by(OrderSession.created_at.desc())
         .limit(limit)
         .all()
@@ -64,7 +72,7 @@ async def list_order_sessions(
 
 
 @router.post("/session/start")
-async def start_order_session(
+def start_order_session(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
@@ -88,7 +96,7 @@ async def start_order_session(
     }
 
 @router.post("/session/{session_id}/select-address")
-async def select_address(
+def select_address(
     session_id: str,
     address_id: str,
     user_id: str = Depends(get_current_user_id),
@@ -154,7 +162,7 @@ async def select_address(
     }
 
 @router.post("/session/{session_id}/select-item")
-async def select_item(
+def select_item(
     session_id: str,
     restaurant_id: str = Query(..., description="ID of the selected restaurant"),
     item_id: str = Query(..., description="ID of the selected menu item"),
@@ -235,7 +243,7 @@ async def select_item(
     }
 
 @router.post("/session/{session_id}/cart")
-async def sync_cart(
+def sync_cart(
     session_id: str,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -275,7 +283,7 @@ async def sync_cart(
             and not allow_restaurant_switch
         ):
             session_record.cart_snapshot = existing_cart
-            session_record.total = existing_cart.get("bill", {}).get("total", 0) or existing_cart.get("total", 0) or 0
+            session_record.total = cart_total(existing_cart)
             db.commit()
             current_name = existing_cart.get("restaurantName") or "another restaurant"
             raise HTTPException(
@@ -287,11 +295,15 @@ async def sync_cart(
                 ),
             )
 
-        # Update cart
+        # Update cart. "menu_item_id" is Swiggy's real request key (confirmed
+        # against the Builders docs and a live INVALID_ITEM_IDS_IN_REQUEST
+        # rejection) — not "itemId", which every call site here previously
+        # used, including the mock client, so nothing ever caught the
+        # mismatch until a real order attempt failed.
         client.update_food_cart(
             addressId=address_id,
             restaurantId=session_record.selected_restaurant_id,
-            cartItems=[{"itemId": session_record.selected_item_id, "quantity": 1}]
+            cartItems=[{"menu_item_id": session_record.selected_item_id, "quantity": 1}]
         )
 
         # Fetch updated cart
@@ -299,7 +311,7 @@ async def sync_cart(
 
         # Save snapshot and transition
         session_record.cart_snapshot = cart_info
-        session_record.total = cart_info.get("bill", {}).get("total", 0) or cart_info.get("total", 0) or 0
+        session_record.total = cart_total(cart_info)
         transition_session_status(db, session_record, OrderStatus.CART_UPDATED)
         db.commit()
 
@@ -308,17 +320,17 @@ async def sync_cart(
             "cart": cart_info,
             "status": OrderStatus.CART_UPDATED.value
         }
-    except HTTPException:
+    except (HTTPException, IllegalTransitionError):
         raise
     except (SwiggyAuthError, SwiggyMCPError):
-        transition_session_status(db, session_record, OrderStatus.FAILED)
+        mark_session_failed(db, session_record)
         raise
     except Exception as e:
-        transition_session_status(db, session_record, OrderStatus.FAILED)
+        mark_session_failed(db, session_record)
         raise HTTPException(status_code=500, detail=f"Cart sync failed: {str(e)}")
 
 @router.get("/session/{session_id}/cart")
-async def review_cart(
+def review_cart(
     session_id: str,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -342,7 +354,7 @@ async def review_cart(
         cart_info = client.get_food_cart(addressId=address_id)
 
         session_record.cart_snapshot = cart_info
-        session_record.total = cart_info.get("bill", {}).get("total", 0) or cart_info.get("total", 0) or 0
+        session_record.total = cart_total(cart_info)
         transition_session_status(db, session_record, OrderStatus.CART_REVIEW_READY)
         db.commit()
 
@@ -351,15 +363,17 @@ async def review_cart(
             "cart": cart_info,
             "status": OrderStatus.CART_REVIEW_READY.value
         }
+    except IllegalTransitionError:
+        raise
     except (SwiggyAuthError, SwiggyMCPError):
-        transition_session_status(db, session_record, OrderStatus.FAILED)
+        mark_session_failed(db, session_record)
         raise
     except Exception as e:
-        transition_session_status(db, session_record, OrderStatus.FAILED)
+        mark_session_failed(db, session_record)
         raise HTTPException(status_code=500, detail=f"Cart review failed: {str(e)}")
 
 @router.post("/session/{session_id}/confirm")
-async def confirm_order_details(
+def confirm_order_details(
     session_id: str,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -397,7 +411,7 @@ async def confirm_order_details(
     }
 
 @router.post("/session/{session_id}/place")
-async def place_order(
+def place_order(
     session_id: str,
     user_confirmed: bool,
     user_id: str = Depends(get_current_user_id),
@@ -438,6 +452,22 @@ async def place_order(
             detail=f"Order cannot be placed. Current session status is {current_status.value}, expected USER_CONFIRMED."
         )
 
+    # Double-submit guard (e.g. two tabs): refuse if another of this user's
+    # sessions placed or is placing an order in the last minute. Deliberately
+    # short and local — a real follow-up order a few minutes later is fine.
+    recent_cutoff = utc_now_naive() - datetime.timedelta(seconds=RECENT_PLACEMENT_WINDOW_SECONDS)
+    recent_other = db.query(OrderSession).filter(
+        OrderSession.user_id == user_id,
+        OrderSession.id != session_id,
+        OrderSession.status.in_([OrderStatus.ORDER_PLACING.value, OrderStatus.ORDER_PLACED.value]),
+        OrderSession.updated_at >= recent_cutoff,
+    ).first()
+    if recent_other:
+        raise HTTPException(
+            status_code=409,
+            detail="Checkout blocked: you placed an order less than a minute ago. Duplicate prevention active — wait a moment and try again if this is a new order."
+        )
+
     # Transition status to ORDER_PLACING
     transition_session_status(db, session_record, OrderStatus.ORDER_PLACING)
 
@@ -452,12 +482,20 @@ async def place_order(
         cart_info = client.get_food_cart(addressId=address_id)
 
         # Verify cart total limit (Rs 1000 limit)
-        cart_total = cart_info.get("bill", {}).get("total", 0) or cart_info.get("total", 0) or 0
-        if cart_total >= 1000:
-            transition_session_status(db, session_record, OrderStatus.FAILED)
+        live_total = cart_total(cart_info)
+        if live_total is None or (live_total <= 0 and cart_info.get("cartItems")):
+            # Fail closed: an unreadable total must never pass the Rs 1000
+            # cap as if it were Rs 0.
+            mark_session_failed(db, session_record)
             raise HTTPException(
                 status_code=400,
-                detail=f"Checkout blocked: Cart total of Rs {cart_total} exceeds the Swiggy Builders Club cap of Rs 1000."
+                detail="Checkout blocked: couldn't read the cart total from Swiggy. Please reopen your cart and try again."
+            )
+        if live_total >= 1000:
+            mark_session_failed(db, session_record)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Checkout blocked: Cart total of Rs {live_total} exceeds the Swiggy Builders Club cap of Rs 1000."
             )
 
         # Dynamic payment method selection from cart details.
@@ -482,7 +520,7 @@ async def place_order(
             if is_mock:
                 normalized_payment_methods = ["COD"]
             else:
-                transition_session_status(db, session_record, OrderStatus.FAILED)
+                mark_session_failed(db, session_record)
                 raise HTTPException(
                     status_code=400,
                     detail="Checkout blocked: Swiggy cart did not return any available payment methods."
@@ -510,7 +548,7 @@ async def place_order(
 
         res = place_order_safely(place_order_fn=do_place, check_status_fn=do_check)
         if not res.get("success"):
-            transition_session_status(db, session_record, OrderStatus.FAILED)
+            mark_session_failed(db, session_record)
             status_code = 409 if res.get("already_placed") else 500
             error_detail = res.get("message", "Order placement failed.")
             if res.get("already_placed"):
@@ -522,7 +560,7 @@ async def place_order(
 
         # Record final details
         session_record.selected_restaurant_id = cart_info.get("restaurantId") or session_record.selected_restaurant_id
-        session_record.total = cart_total
+        session_record.total = live_total
         session_record.payment_method = payment_method
         db.commit()
 
@@ -541,14 +579,14 @@ async def place_order(
             "message": res.get("message")
         }
 
-    except HTTPException:
+    except (HTTPException, IllegalTransitionError):
         raise
     except (SwiggyAuthError, SwiggyMCPError):
-        transition_session_status(db, session_record, OrderStatus.FAILED)
+        mark_session_failed(db, session_record)
         raise
     except Exception as e:
         # Failsafe: transition session to FAILED in case of other errors
-        transition_session_status(db, session_record, OrderStatus.FAILED)
+        mark_session_failed(db, session_record)
         raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
 
 
@@ -560,7 +598,7 @@ class ApplyCouponSchema(BaseModel):
     coupon_code: str = Field(..., min_length=1)
 
 @router.get("/session/{session_id}/coupons")
-async def get_applicable_coupons(
+def get_applicable_coupons(
     session_id: str,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -603,7 +641,7 @@ async def get_applicable_coupons(
         raise HTTPException(status_code=500, detail=f"Failed to fetch coupons: {str(e)}")
 
 @router.post("/session/{session_id}/coupon/apply")
-async def apply_coupon_to_cart(
+def apply_coupon_to_cart(
     session_id: str,
     payload: ApplyCouponSchema,
     user_id: str = Depends(get_current_user_id),
@@ -630,8 +668,17 @@ async def apply_coupon_to_cart(
         # Retrieve the updated cart to reflect the new total in db
         cart_info = swiggy.get_food_cart(addressId=address_id)
         session_record.cart_snapshot = cart_info
-        session_record.total = cart_info.get("bill", {}).get("total", 0) or cart_info.get("total", 0) or 0
+        session_record.total = cart_total(cart_info)
         db.commit()
+
+        # Per the apply_food_coupon docs, a coupon only counts as applied when
+        # the cart shows a positive coupon discount — Swiggy can return
+        # success while silently not applying it.
+        if not (cart_info.get("discount_amount") or 0) > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Coupon {payload.coupon_code} couldn't be applied to this cart.",
+            )
 
         return {
             "success": True,
@@ -639,7 +686,7 @@ async def apply_coupon_to_cart(
             "cart": cart_info,
             "status": session_record.status
         }
-    except (SwiggyAuthError, SwiggyMCPError):
+    except (HTTPException, SwiggyAuthError, SwiggyMCPError):
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Coupon application failed: {str(e)}")
@@ -652,7 +699,7 @@ class OrderFeedbackSchema(BaseModel):
     again: bool = True
 
 @router.post("/session/{session_id}/feedback")
-async def submit_order_feedback(
+def submit_order_feedback(
     session_id: str,
     feedback_data: OrderFeedbackSchema,
     user_id: str = Depends(get_current_user_id),

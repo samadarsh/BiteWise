@@ -1,3 +1,4 @@
+import re
 import requests
 import json
 import time
@@ -18,6 +19,118 @@ class SwiggyMCPError(Exception):
 class SwiggyAuthError(SwiggyMCPError):
     """Raised when the session is unauthenticated or the OAuth token has expired (401)."""
     pass
+
+
+# Per /docs/reference/errors: auth failures are HTTP 401 (419 = session
+# revoked) or JSON-RPC -32001. Message text is only a fallback, and only
+# phrases that are unambiguously about the login session count — the old
+# check treated ANY message containing "auth", "token" or "expire" (e.g.
+# "This coupon has expired") as a dead login, which made BiteWise delete the
+# user's Swiggy connection.
+_AUTH_ERROR_CODES = {-32001}
+_AUTH_HTTP_STATUSES = {401, 419}
+_AUTH_MESSAGE_PATTERN = re.compile(
+    r"unauthenticated|unauthori[sz]ed|re-?authenticate|not (?:logged|signed) in|"
+    r"(?:access[ _]?token|auth(?:entication)?[ _]?token|login|session)\b[^.]{0,40}\b(?:expired|invalid|revoked)|"
+    r"(?:expired|invalid|revoked)\b[^.]{0,20}\b(?:access[ _]?token|auth(?:entication)?[ _]?token|login|session)\b",
+    re.IGNORECASE,
+)
+
+
+def is_auth_failure(message: Optional[str] = None, code: Any = None, http_status: Optional[int] = None) -> bool:
+    if http_status in _AUTH_HTTP_STATUSES or code in _AUTH_ERROR_CODES or code in _AUTH_HTTP_STATUSES:
+        return True
+    return bool(message and _AUTH_MESSAGE_PATTERN.search(message))
+
+
+def _to_number(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(str(value).replace(",", "").replace("₹", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_food_cart(payload: Any) -> Dict[str, Any]:
+    """
+    Maps Swiggy's documented Food cart payload (get_food_cart /
+    update_food_cart reference docs: `data.restaurant`, `data.items`,
+    `data.pricing.to_pay`, `data.offers`, plus top-level
+    `availablePaymentMethods`) onto the flat keys the rest of BiteWise uses
+    (restaurantId, restaurantName, cartItems, total, bill.total,
+    applied_coupon, discount_amount) — the same keys the mock client emits.
+
+    Every caller used to read `bill.total` / `total` / `restaurantId`
+    directly, none of which exist on a real cart, so in live mode the cart
+    total always read as 0 (silently defeating the Rs 1000 cap) and the
+    restaurant-switch guard never fired.
+
+    `total` is None when the payload has items but no readable price, so
+    callers can fail closed instead of treating an unknown total as Rs 0.
+    """
+    if not isinstance(payload, dict):
+        return {}
+
+    inner = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    if not any(k in inner for k in ("pricing", "items", "restaurant")) and isinstance(inner.get("data"), dict):
+        inner = inner["data"]
+    if not any(k in inner for k in ("pricing", "items", "restaurant")):
+        return payload  # already flat (mock client) shape
+
+    restaurant = inner.get("restaurant") if isinstance(inner.get("restaurant"), dict) else {}
+    pricing = inner.get("pricing") if isinstance(inner.get("pricing"), dict) else {}
+    offers = inner.get("offers") if isinstance(inner.get("offers"), dict) else {}
+    items = [i for i in (inner.get("items") or []) if isinstance(i, dict)]
+
+    total = _to_number(pricing.get("to_pay"))
+    if total is None and not items:
+        total = 0.0
+    coupon_discount = _to_number(offers.get("coupon_discount")) or 0.0
+    # Per the docs, a coupon counts as applied only with a code AND a
+    # positive discount.
+    applied_coupon = offers.get("coupon_applied") if coupon_discount > 0 else None
+
+    normalized = dict(payload)
+    normalized.update({
+        "restaurantId": restaurant.get("id"),
+        "restaurantName": restaurant.get("name"),
+        "cartItems": [
+            {
+                "menu_item_id": i.get("menu_item_id"),
+                "name": i.get("name"),
+                "quantity": i.get("quantity"),
+                "lineTotal": _to_number(i.get("total")),
+                "in_stock": i.get("in_stock"),
+            }
+            for i in items
+        ],
+        "total": total,
+        "bill": {
+            "subtotal": _to_number(pricing.get("item_total")),
+            "delivery": _to_number(pricing.get("delivery_charge")),
+            "taxes": _to_number(pricing.get("taxes_and_charges")),
+            "discount": coupon_discount,
+            "total": total,
+        },
+        "applied_coupon": applied_coupon,
+        "discount_amount": coupon_discount,
+        "cartId": inner.get("cart_id"),
+        "availablePaymentMethods": payload.get("availablePaymentMethods") or inner.get("availablePaymentMethods") or [],
+    })
+    return normalized
+
+
+def cart_total(cart: Dict[str, Any]) -> Optional[float]:
+    """Payable total of a (normalized or mock) Food cart, or None if unknown."""
+    if not isinstance(cart, dict):
+        return None
+    bill = cart.get("bill") if isinstance(cart.get("bill"), dict) else {}
+    for value in (bill.get("total"), cart.get("total")):
+        number = _to_number(value)
+        if number is not None:
+            return number
+    return None
 
 
 class _SwiggyMCPTransport:
@@ -164,7 +277,7 @@ class _SwiggyMCPTransport:
             response = requests.post(self.base_url, json=payload, headers=headers, timeout=15)
 
             # Detect 401 Unauthorized directly
-            if response.status_code == 401:
+            if response.status_code in _AUTH_HTTP_STATUSES:
                 self._record_tool_completion(
                     tool_name,
                     request_id,
@@ -186,7 +299,7 @@ class _SwiggyMCPTransport:
                 err_msg = rpc_err.get("message", "Unknown JSON-RPC error")
 
                 # Check for standard MCP session authentication error codes (e.g. -32001 or unauthenticated msg)
-                if err_code in [-32001, -32002] or "unauthorized" in err_msg.lower() or "auth" in err_msg.lower():
+                if is_auth_failure(err_msg, code=err_code):
                     self._record_tool_completion(
                         tool_name,
                         request_id,
@@ -223,7 +336,7 @@ class _SwiggyMCPTransport:
                     tool_name, request_id, started_at, success=False,
                     status_code=response.status_code, error_category="domain_failure",
                 )
-                if "auth" in err_text.lower() or "expire" in err_text.lower() or "token" in err_text.lower():
+                if is_auth_failure(err_text):
                     raise SwiggyAuthError(f"Authentication failed: {err_text}")
                 raise SwiggyMCPError(f"Swiggy MCP error: {err_text}")
 
@@ -315,7 +428,7 @@ class _SwiggyMCPTransport:
                 except Exception:
                     pass
             error_category = "upstream_error"
-            if status == 401:
+            if status in _AUTH_HTTP_STATUSES:
                 error_category = "unauthenticated"
                 self._record_tool_completion(
                     tool_name,
@@ -352,11 +465,10 @@ class _SwiggyMCPTransport:
             return data
 
         # Parse error message from Swiggy error block or fallback message
-        err = envelope.get("error", {})
+        err = envelope.get("error") if isinstance(envelope.get("error"), dict) else {}
         err_msg = err.get("message") or msg or "Unknown error occurred"
 
-        # Check if error message indicates authentication failure
-        if "auth" in err_msg.lower() or "expire" in err_msg.lower() or "token" in err_msg.lower():
+        if is_auth_failure(err_msg, code=err.get("code")):
             raise SwiggyAuthError(f"Unauthenticated: {err_msg}")
 
         raise SwiggyMCPError(err_msg)
@@ -453,14 +565,14 @@ class SwiggyFoodMCPClient(_SwiggyMCPTransport):
         res = self.call_tool("update_food_cart", args)
         # data can legitimately be None (e.g. an empty cart) — the return
         # type promises a dict, so callers can .get() without a null check.
-        return self._unpack_and_normalize(res) or {}
+        return normalize_food_cart(self._unpack_and_normalize(res) or {})
 
     def get_food_cart(self, addressId: str, restaurantName: Optional[str] = None) -> Dict[str, Any]:
         args = {"addressId": addressId}
         if restaurantName is not None:
             args["restaurantName"] = restaurantName
         res = self.call_tool("get_food_cart", args)
-        return self._unpack_and_normalize(res) or {}
+        return normalize_food_cart(self._unpack_and_normalize(res) or {})
 
     def get_food_orders(self, addressId: str, orderCount: Optional[int] = None) -> List[Dict[str, Any]]:
         args = {"addressId": addressId}

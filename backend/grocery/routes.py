@@ -1,3 +1,4 @@
+import math
 import secrets
 import datetime
 from typing import List, Optional, Dict, Any
@@ -16,11 +17,13 @@ from backend.mcp.swiggy_instamart_client import ProductionSwiggyInstamartClient
 from mcp.instamart_mock import MockSwiggyInstamartMCP
 from mcp.mcp_client import SwiggyAuthError, SwiggyMCPError
 from config.settings import get_settings
+from backend.orders.state_machine import utc_now_naive
 
 router = APIRouter(prefix="/grocery-list", tags=["Grocery List Management"])
 
 INSTAMART_MIN_ORDER_RUPEES = 99
 INSTAMART_MAX_ORDER_RUPEES = 1000
+RECENT_CHECKOUT_WINDOW_SECONDS = 60
 
 # Common English/Hindi synonyms and plurals that don't substring-match the
 # catalog's product names directly (e.g. "curd" -> "Amul Masti Dahi 400g").
@@ -105,7 +108,7 @@ def get_or_create_active_list(db: Session, household_id: str) -> GroceryList:
 
 # Endpoints
 @router.get("", response_model=GroceryListResponse)
-async def get_grocery_list(
+def get_grocery_list(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -117,7 +120,7 @@ async def get_grocery_list(
 
 
 @router.post("/items", response_model=GroceryListItemResponse)
-async def add_grocery_item(
+def add_grocery_item(
     req: ItemCreateRequest,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -157,7 +160,7 @@ async def add_grocery_item(
 
 
 @router.put("/items/{item_id}", response_model=GroceryListItemResponse)
-async def update_grocery_item(
+def update_grocery_item(
     item_id: str,
     req: ItemUpdateRequest,
     user_id: str = Depends(get_current_user_id),
@@ -184,7 +187,7 @@ async def update_grocery_item(
 
 
 @router.delete("/items/{item_id}")
-async def delete_grocery_item(
+def delete_grocery_item(
     item_id: str,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -209,7 +212,7 @@ async def delete_grocery_item(
 
 
 @router.post("/recipe-match")
-async def match_recipe_ingredients(
+def match_recipe_ingredients(
     req: RecipePlanRequest,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -384,6 +387,7 @@ def _build_cart_lines(db: Session, household_id: str, user_id: str, address_id: 
 
     preview_items: List[CartPreviewItem] = []
     cart_items_for_mcp: List[Dict[str, Any]] = []
+    unmatched_names: List[str] = []
     total_cost = 0.0
 
     for item in unpurchased_items:
@@ -400,7 +404,12 @@ def _build_cart_lines(db: Session, household_id: str, user_id: str, address_id: 
             status = "SIMULATED"
             spin_id = f"generic_{item.id}"
 
-        item_total = price * item.quantity
+        # Instamart sells whole units: round up once and use the same number
+        # for both the displayed price and the cart line, so the preview
+        # total is exactly what gets ordered (int() used to turn 0.5 into 1
+        # but 2.5 into 2, while the preview priced 2.5).
+        order_qty = max(1, math.ceil(item.quantity))
+        item_total = price * order_qty
         total_cost += item_total
 
         preview_items.append(CartPreviewItem(
@@ -411,18 +420,21 @@ def _build_cart_lines(db: Session, household_id: str, user_id: str, address_id: 
             price_in_rupees=item_total,
             stock_status=status
         ))
-        cart_items_for_mcp.append({"spinId": spin_id, "quantity": int(item.quantity) or 1})
+        cart_items_for_mcp.append({"spinId": spin_id, "quantity": order_qty})
+        if status == "SIMULATED":
+            unmatched_names.append(item.item_name)
 
     return {
         "preview_items": preview_items,
         "cart_items_for_mcp": cart_items_for_mcp,
         "grocery_items": unpurchased_items,
         "total_cost": round(total_cost, 2),
+        "unmatched_names": unmatched_names,
     }
 
 
 @router.post("/cart-preview", response_model=CartPreviewResponse)
-async def generate_cart_preview(
+def generate_cart_preview(
     address_id: Optional[str] = None,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -451,7 +463,7 @@ class InstamartCheckoutRequest(BaseModel):
 
 
 @router.post("/checkout")
-async def checkout_instamart_cart(
+def checkout_instamart_cart(
     req: InstamartCheckoutRequest,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -489,33 +501,104 @@ async def checkout_instamart_cart(
             detail="Safety Lock: Instamart checkout is disabled unless SWIGGY_ENV=staging and ALLOW_PLACE_ORDER=true."
         )
 
+    # Never send a made-up product ID to a real cart: an unmatched line is
+    # only a SIMULATED estimate (spinId "generic_<id>") and has no real
+    # Instamart product behind it.
+    if not is_mock and lines["unmatched_names"]:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Couldn't find these on Instamart: " + ", ".join(lines["unmatched_names"])
+                + ". Rename or remove them from your grocery list, then build the cart again."
+            ),
+        )
+
+    # Double-submit guard (two tabs / double click).
+    recent_cutoff = utc_now_naive() - datetime.timedelta(seconds=RECENT_CHECKOUT_WINDOW_SECONDS)
+    recent_checkout = db.query(InstamartCartSession).filter(
+        InstamartCartSession.household_id == household.id,
+        InstamartCartSession.status.in_(["PLACING", "PLACED"]),
+        InstamartCartSession.updated_at >= recent_cutoff,
+    ).first()
+    if recent_checkout:
+        raise HTTPException(
+            status_code=409,
+            detail="Checkout blocked: an Instamart order for your household was placed less than a minute ago. Duplicate prevention active.",
+        )
+
     session_id = f"instamart_{secrets.token_hex(6)}"
-    session_record = InstamartCartSession(id=session_id, user_id=user_id, household_id=household.id, status="START")
+    session_record = InstamartCartSession(id=session_id, user_id=user_id, household_id=household.id, status="START", updated_at=utc_now_naive())
     db.add(session_record)
     db.commit()
 
     try:
         client = ProductionSwiggyInstamartClient(user_id=user_id)
-        client.update_cart(addressId=req.address_id, items=lines["cart_items_for_mcp"])
-        order_res = client.checkout(addressId=req.address_id, paymentMethod=req.payment_method)
+        # update_cart REPLACES the whole Instamart cart (per the docs) — the
+        # UI tells the user this before they confirm.
+        cart_res = client.update_cart(addressId=req.address_id, items=lines["cart_items_for_mcp"]) or {}
 
-        session_record.status = "PLACED"
-        session_record.swiggy_cart_meta = order_res
+        if not is_mock:
+            dropped = (cart_res.get("removedOutOfStockItems") or []) + (cart_res.get("unserviceableItems") or [])
+            if dropped:
+                names = ", ".join(str(d.get("itemName") or d.get("spinId")) for d in dropped if isinstance(d, dict))
+                raise HTTPException(status_code=409, detail=f"Some items are out of stock or can't be delivered here: {names}. Update your list and try again.")
+            live_total = instamart_cart_total(cart_res)
+            if live_total is None:
+                raise HTTPException(status_code=400, detail="Checkout blocked: couldn't read the Instamart cart total. Please try again.")
+            if live_total < INSTAMART_MIN_ORDER_RUPEES:
+                raise HTTPException(status_code=400, detail=f"Instamart orders need a minimum of Rs {INSTAMART_MIN_ORDER_RUPEES} (current: Rs {live_total}).")
+            if live_total >= INSTAMART_MAX_ORDER_RUPEES:
+                raise HTTPException(status_code=400, detail=f"Checkout blocked: Cart total of Rs {live_total} exceeds the Swiggy Builders Club cap of Rs {INSTAMART_MAX_ORDER_RUPEES}.")
+            total = live_total
+
+        session_record.status = "PLACING"
+        session_record.updated_at = utc_now_naive()
         db.commit()
 
-        restock_result = mark_grocery_items_purchased_and_restock(
-            db, household.id, [gi.id for gi in lines["grocery_items"]]
-        )
+        order_res = client.checkout(addressId=req.address_id, paymentMethod=req.payment_method) or {}
+
+        if str(order_res.get("status") or "").upper() == "PENDING_PAYMENT":
+            session_record.status = "PENDING_PAYMENT"
+            session_record.swiggy_cart_meta = order_res
+            db.commit()
+            raise HTTPException(status_code=402, detail="Payment is still pending — the order isn't placed yet. Complete payment in your UPI app.")
+
+        # Multi-store carts come back as several orders (per the checkout
+        # docs); only a fully successful checkout restocks the pantry.
+        partial = "orders" in order_res and not order_res.get("allSucceeded", False)
+        order_ids = [o.get("orderId") for o in (order_res.get("orders") or []) if isinstance(o, dict) and o.get("orderId")]
+        order_id = order_res.get("orderId") or (order_ids[0] if order_ids else None)
+
+        session_record.status = "PARTIAL" if partial else "PLACED"
+        session_record.swiggy_cart_meta = order_res
+        session_record.updated_at = utc_now_naive()
+        db.commit()
+
+        restocked: List[str] = []
+        if not partial:
+            restock_result = mark_grocery_items_purchased_and_restock(
+                db, household.id, [gi.id for gi in lines["grocery_items"]]
+            )
+            restocked = restock_result["restocked_to_full"]
 
         return {
             "success": True,
-            "order_id": order_res.get("orderId", session_id),
-            "status": "PLACED",
+            "partial": partial,
+            "order_id": order_id or session_id,
+            "order_ids": order_ids,
+            "status": session_record.status,
             "total": total,
             "items_ordered": len(lines["cart_items_for_mcp"]),
-            "restocked_to_full": restock_result["restocked_to_full"],
+            "restocked_to_full": restocked,
+            "message": (
+                "Some stores couldn't fulfil their part of this order — check your Swiggy app. Your grocery list was left unchanged."
+                if partial else None
+            ),
         }
     except HTTPException:
+        if session_record.status in ("START", "PLACING"):
+            session_record.status = "FAILED"
+            db.commit()
         raise
     except (SwiggyAuthError, SwiggyMCPError):
         session_record.status = "FAILED"
@@ -527,8 +610,24 @@ async def checkout_instamart_cart(
         raise HTTPException(status_code=500, detail=f"Instamart checkout failed: {str(e)}")
 
 
+def instamart_cart_total(cart: Dict[str, Any]) -> Optional[float]:
+    """Payable total of a real Instamart cart (get_cart / update_cart docs:
+    `billBreakdown.toPay.value`, else `cartTotalAmount` — both strings)."""
+    if not isinstance(cart, dict):
+        return None
+    candidates = [((cart.get("billBreakdown") or {}).get("toPay") or {}).get("value"), cart.get("cartTotalAmount")]
+    for value in candidates:
+        if value is None:
+            continue
+        try:
+            return float(str(value).replace("₹", "").replace(",", "").strip())
+        except ValueError:
+            continue
+    return None
+
+
 @router.get("/grouped")
-async def get_grouped_grocery_list(
+def get_grouped_grocery_list(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):

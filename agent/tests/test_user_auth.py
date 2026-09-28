@@ -26,6 +26,9 @@ def test_guest_login():
 def test_google_login():
     original_use_mock = os.environ.get("USE_MOCK_MCP")
     os.environ["USE_MOCK_MCP"] = "true"
+    # The unverified demo login only exists on an instance with no real
+    # Google sign-in configured (see test_mock_google_login_disabled_...).
+    os.environ.pop("GOOGLE_CLIENT_ID", None)
     try:
         with TestClient(app) as client:
             payload = {
@@ -118,53 +121,56 @@ def test_google_login_rejects_audience_mismatch(mock_get):
         else:
             os.environ["GOOGLE_CLIENT_ID"] = original_google_client_id
 
-def test_unsigned_user_id_header_rejected_outside_mock_mode():
-    """Security regression: get_current_user_id() previously trusted an
-    unsigned x-user-id header whenever APP_ENV=development — the default on
-    every dev machine and, critically, never overridden in this test suite —
-    completely independent of USE_MOCK_MCP. That meant flipping USE_MOCK_MCP
-    to false for a real deployment did nothing to stop identity spoofing via
-    a raw header/query param. Must be rejected once USE_MOCK_MCP=false,
-    regardless of APP_ENV; must still be accepted (dev convenience) when
-    USE_MOCK_MCP=true."""
-    original_use_mock = os.environ.get("USE_MOCK_MCP")
+def test_unsigned_identity_rejected_in_every_mode():
+    """Security regression: mock mode used to trust an unsigned x-user-id
+    header, ?user_id= query, or raw cookie/Bearer value — so on the public
+    demo instance anyone could act as any user by knowing their id."""
     os.environ["USE_MOCK_MCP"] = "true"
-    try:
-        with TestClient(app) as client:
-            guest_res = client.post("/auth/guest")
-            real_user_id = guest_res.json()["user_id"]
-    finally:
-        if original_use_mock is None:
-            os.environ.pop("USE_MOCK_MCP", None)
-        else:
-            os.environ["USE_MOCK_MCP"] = original_use_mock
+    with TestClient(app) as client:
+        real_user_id = client.post("/auth/guest").json()["user_id"]
 
+    for mode in ("true", "false"):
+        os.environ["USE_MOCK_MCP"] = mode
+        with TestClient(app) as client:
+            for kwargs in (
+                {"headers": {"x-user-id": real_user_id}},
+                {"headers": {"Authorization": f"Bearer {real_user_id}"}},
+                {"params": {"user_id": real_user_id}},
+            ):
+                data = client.get("/auth/me", **kwargs).json()
+                assert data["authenticated"] is False, (mode, kwargs)
+            client.cookies.set("bitewise_session", real_user_id)
+            assert client.get("/auth/me").json()["authenticated"] is False
+
+
+def test_mock_google_login_disabled_when_real_google_configured():
+    """With a real GOOGLE_CLIENT_ID, real Google accounts exist on this
+    instance — an unverified "mock_" token or bare email must not be able to
+    log in as one of them, even in mock mode."""
+    os.environ["USE_MOCK_MCP"] = "true"
+    os.environ["GOOGLE_CLIENT_ID"] = "real-client-id"
+    with TestClient(app) as client:
+        res = client.post("/auth/google", json={"email": "victim@gmail.com"})
+        assert res.status_code == 400
+        with patch("backend.auth.user_auth.requests.get") as mock_get:
+            mock_get.return_value = MagicMock(status_code=400)
+            res = client.post("/auth/google", json={"id_token": "mock_x", "email": "victim@gmail.com"})
+            assert res.status_code == 401
+
+
+@patch("backend.auth.user_auth.requests.get")
+def test_google_access_token_from_another_app_rejected(mock_get):
+    """userinfo accepts any Google access token; the audience must be ours."""
     os.environ["USE_MOCK_MCP"] = "false"
-    try:
-        with TestClient(app) as client:
-            response = client.get("/auth/me", headers={"x-user-id": real_user_id})
-            assert response.status_code == 200
-            data = response.json()
-            assert data["authenticated"] is False
-    finally:
-        if original_use_mock is None:
-            os.environ.pop("USE_MOCK_MCP", None)
-        else:
-            os.environ["USE_MOCK_MCP"] = original_use_mock
-
-    os.environ["USE_MOCK_MCP"] = "true"
-    try:
-        with TestClient(app) as client:
-            response = client.get("/auth/me", headers={"x-user-id": real_user_id})
-            assert response.status_code == 200
-            data = response.json()
-            assert data["authenticated"] is True
-            assert data["user"]["id"] == real_user_id
-    finally:
-        if original_use_mock is None:
-            os.environ.pop("USE_MOCK_MCP", None)
-        else:
-            os.environ["USE_MOCK_MCP"] = original_use_mock
+    os.environ["GOOGLE_CLIENT_ID"] = "expected-client-id"
+    mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value={
+        "aud": "some-other-app", "azp": "some-other-app",
+        "email": "victim@gmail.com", "email_verified": "true",
+    }))
+    with TestClient(app) as client:
+        res = client.post("/auth/google", json={"access_token": "ya29.token"})
+        assert res.status_code == 401
+        assert "audience" in res.json()["detail"].lower()
 
 
 def test_guest_login_rate_limited_after_10_calls():

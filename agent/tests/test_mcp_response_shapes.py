@@ -384,3 +384,58 @@ def test_get_restaurant_menu_with_metadata_keeps_restaurant_object():
     assert result["restaurant"]["isOpen"] is False
     assert result["restaurant"]["avgRating"] == 4.2
     assert [i["id"] for i in result["items"]] == ["i1"]
+
+
+def test_domain_errors_mentioning_expiry_are_not_auth_failures():
+    """Regression: "auth"/"token"/"expire" anywhere in a message used to be
+    treated as a dead Swiggy login — so "This coupon has expired" deleted the
+    user's stored Swiggy token. Only documented auth signals count."""
+    client = SwiggyFoodMCPClient(base_url="https://mcp.test/food", token="tok")
+    for message in ("This coupon has expired", "Offer for Swiggy One members (Author: promo)", "Invalid token in cart request"):
+        try:
+            client._unpack_and_normalize({"success": False, "error": {"message": message}})
+            assert False, "expected SwiggyMCPError"
+        except SwiggyAuthError:
+            assert False, f"{message!r} must not be classified as an auth failure"
+        except SwiggyMCPError:
+            pass
+
+
+def test_jsonrpc_32001_is_auth_failure():
+    body = {"jsonrpc": "2.0", "id": "1", "error": {"code": -32001, "message": "Cannot resolve session"}}
+    with patch("requests.post", side_effect=_client(body)):
+        client = SwiggyFoodMCPClient(base_url="https://mcp.test/food", token="tok")
+        try:
+            client.call_tool("get_addresses", {})
+            assert False, "expected SwiggyAuthError"
+        except SwiggyAuthError:
+            pass
+
+
+def test_live_food_cart_shape_is_normalized():
+    """Swiggy's documented cart puts the payable total at data.pricing.to_pay
+    and the restaurant at data.restaurant — callers used to read bill.total /
+    total / restaurantId and got 0 / None in live mode."""
+    from mcp.mcp_client import normalize_food_cart, cart_total
+    live = {
+        "data": {
+            "cart_id": "c1",
+            "restaurant": {"id": "r9", "name": "Real Place"},
+            "items": [{"menu_item_id": "m1", "name": "Bowl", "quantity": 1, "total": 1180}],
+            "pricing": {"item_total": 1100, "delivery_charge": 40, "taxes_and_charges": 60, "to_pay": 1200},
+            "offers": {"coupon_applied": "SAVE50", "coupon_discount": 0},
+        },
+        "addressId": "a1",
+        "availablePaymentMethods": ["Cash", "UPI"],
+    }
+    cart = normalize_food_cart(live)
+    assert cart_total(cart) == 1200
+    assert cart["restaurantId"] == "r9"
+    assert cart["restaurantName"] == "Real Place"
+    assert cart["cartItems"][0]["menu_item_id"] == "m1"
+    assert cart["availablePaymentMethods"] == ["Cash", "UPI"]
+    # Coupon code present but zero discount = not applied (per docs).
+    assert cart["applied_coupon"] is None
+    # Unknown total with items must stay unknown, never become 0.
+    live["data"]["pricing"] = {}
+    assert cart_total(normalize_food_cart(live)) is None

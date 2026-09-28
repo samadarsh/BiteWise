@@ -27,6 +27,7 @@ class Settings:
     google_client_id: str = ""
     session_secret: str = ""
     cors_allowed_origins: List[str] = field(default_factory=list)
+    cors_allowed_origin_regex: str = ""
     sentry_dsn: str = ""
     gemini_api_key: str = ""
 
@@ -55,6 +56,7 @@ def get_settings() -> Settings:
         google_client_id=os.getenv("GOOGLE_CLIENT_ID", ""),
         session_secret=os.getenv("SESSION_SECRET", ""),
         cors_allowed_origins=origins,
+        cors_allowed_origin_regex=os.getenv("CORS_ALLOWED_ORIGIN_REGEX", ""),
         sentry_dsn=os.getenv("SENTRY_DSN", ""),
         gemini_api_key=os.getenv("GEMINI_API_KEY", "")
     )

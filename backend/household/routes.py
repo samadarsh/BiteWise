@@ -1,3 +1,4 @@
+import re
 import secrets
 import difflib
 from typing import List, Optional, Any, Dict
@@ -58,7 +59,7 @@ class MemberUpdateRequest(BaseModel):
 
 # Endpoints
 @router.get("/my-home", response_model=HouseholdResponse)
-async def get_my_household(
+def get_my_household(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -71,7 +72,7 @@ async def get_my_household(
 
 
 @router.post("/members", response_model=MemberResponse)
-async def add_household_member(
+def add_household_member(
     req: MemberCreateRequest,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -99,7 +100,7 @@ async def add_household_member(
 
 
 @router.put("/members/{member_id}", response_model=MemberResponse)
-async def update_household_member(
+def update_household_member(
     member_id: str,
     req: MemberUpdateRequest,
     user_id: str = Depends(get_current_user_id),
@@ -131,7 +132,7 @@ async def update_household_member(
 
 
 @router.delete("/members/{member_id}")
-async def delete_household_member(
+def delete_household_member(
     member_id: str,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -161,7 +162,7 @@ async def delete_household_member(
 # ── Sprint 11: Intelligence Endpoints ──────────────────
 
 @router.get("/low-stock")
-async def get_low_stock_alerts(
+def get_low_stock_alerts(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -174,7 +175,7 @@ async def get_low_stock_alerts(
 
 
 @router.get("/cook-today")
-async def get_cook_today_suggestions(
+def get_cook_today_suggestions(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -187,7 +188,7 @@ async def get_cook_today_suggestions(
 
 
 @router.get("/insights")
-async def get_household_insights(
+def get_household_insights(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -206,7 +207,7 @@ class KitchenResolveRequest(BaseModel):
 
 
 @router.post("/kitchen/resolve")
-async def resolve_kitchen_query(
+def resolve_kitchen_query(
     req: KitchenResolveRequest,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -259,7 +260,11 @@ async def resolve_kitchen_query(
 
     # 2. Cooking-flavored language with no specific dish matched -> browse fallback.
     cook_cues = ["cook", "make", "dinner", "lunch", "breakfast", "tonight", "recipe", "eat", "meal", "surprise", "quick", "veg"]
-    if not query_lower or any(cue in query_lower for cue in cook_cues):
+    # Whole words only: substring matching sent "wheat flour" (eat),
+    # "vegetables" (veg) and "meat" (eat) to recipe browsing instead of the
+    # shopping list.
+    query_words = set(re.findall(r"[a-z]+", query_lower))
+    if not query_lower or query_words & set(cook_cues):
         top = sorted(suggestions, key=lambda s: s.get("coverage_pct", 0), reverse=True)[:5]
         return {"intent": "browse", "recipe": None, "grocery_item_names": None, "browse_suggestions": top}
 

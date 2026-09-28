@@ -1,4 +1,5 @@
 from google.genai import errors as genai_errors
+from fastapi.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List
@@ -21,8 +22,10 @@ from config.settings import get_settings
 
 router = APIRouter(prefix="/coach", tags=["Health Coach"])
 
+MAX_SCAN_IMAGE_BYTES = 8 * 1024 * 1024
+
 @router.get("/today", response_model=CoachStatusResponse)
-async def get_coach_today_status(
+def get_coach_today_status(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -33,7 +36,7 @@ async def get_coach_today_status(
         raise HTTPException(status_code=500, detail=f"Failed to retrieve daily status: {str(e)}")
 
 @router.post("/manual-entry", response_model=NutritionEntrySchema)
-async def add_manual_nutrition_log(
+def add_manual_nutrition_log(
     payload: ManualEntrySchema,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -65,10 +68,15 @@ async def scan_food_image(
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image.")
 
-    image_bytes = await file.read()
+    # Hard cap regardless of Content-Length (a chunked upload has none, so
+    # the middleware's header check alone could be bypassed).
+    image_bytes = await file.read(MAX_SCAN_IMAGE_BYTES + 1)
+    if len(image_bytes) > MAX_SCAN_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Image is too large (max 8MB).")
 
     try:
-        return analyze_food_image(image_bytes, file.content_type)
+        # Gemini's client is blocking — keep it off the event loop.
+        return await run_in_threadpool(analyze_food_image, image_bytes, file.content_type)
     except genai_errors.APIError as e:
         if e.code in (401, 403):
             raise HTTPException(status_code=503, detail="Food scanning is misconfigured (invalid API key).")
@@ -81,7 +89,7 @@ async def scan_food_image(
         raise HTTPException(status_code=502, detail=f"Couldn't reach the food scanning service: {str(e)}")
 
 @router.get("/history", response_model=List[NutritionEntrySchema])
-async def get_logged_meals_history(
+def get_logged_meals_history(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -92,7 +100,7 @@ async def get_logged_meals_history(
         raise HTTPException(status_code=500, detail=f"Failed to fetch history: {str(e)}")
 
 @router.post("/weight", response_model=WeightEntrySchema)
-async def log_weight(
+def log_weight(
     payload: WeightLogRequest,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -105,7 +113,7 @@ async def log_weight(
         raise HTTPException(status_code=500, detail=f"Failed to log weight: {str(e)}")
 
 @router.get("/weight-history", response_model=List[WeightEntrySchema])
-async def get_weight_history(
+def get_weight_history(
     days: int = Query(30, ge=1, le=365),
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -117,7 +125,7 @@ async def get_weight_history(
         raise HTTPException(status_code=500, detail=f"Failed to fetch weight history: {str(e)}")
 
 @router.get("/trends", response_model=TrendsResponse)
-async def get_trends(
+def get_trends(
     days: int = Query(7, ge=1, le=90),
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -129,7 +137,7 @@ async def get_trends(
         raise HTTPException(status_code=500, detail=f"Failed to fetch trends: {str(e)}")
 
 @router.post("/next-meal")
-async def recommend_next_coach_meal(
+def recommend_next_coach_meal(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
     _rate_limit = Depends(mutating_rate_limiter)
