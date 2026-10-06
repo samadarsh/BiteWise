@@ -15,14 +15,14 @@ class MCPCache:
 
     def get(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Any]:
         key = self._make_key(tool_name, arguments)
-        if key not in self._cache:
+        entry = self._cache.get(key)
+        if entry is None:
             metrics_tracker.record_cache_miss()
             return None
-
-        val, expires_at = self._cache[key]
+        val, expires_at = entry
         if time.time() > expires_at:
-            # Expired, remove from cache
-            del self._cache[key]
+            # Expired, remove from cache (pop: another thread may have already)
+            self._cache.pop(key, None)
             log_info(f"Cache expired for tool: {tool_name}", extra={"tool": tool_name})
             metrics_tracker.record_cache_miss()
             return None
@@ -31,9 +31,22 @@ class MCPCache:
         metrics_tracker.record_cache_hit()
         return val
 
+    MAX_ENTRIES = 2000
+
     def set(self, tool_name: str, arguments: Dict[str, Any], value: Any, ttl_seconds: float = 600.0) -> None:
         key = self._make_key(tool_name, arguments)
-        expires_at = time.time() + ttl_seconds
+        now = time.time()
+        expires_at = now + ttl_seconds
+        if len(self._cache) >= self.MAX_ENTRIES:
+            # Expired entries were only ever removed when re-read, so the
+            # cache grew without bound. Sweep them; if still full, drop the
+            # entries closest to expiry.
+            for k, (_, exp) in list(self._cache.items()):
+                if exp <= now:
+                    self._cache.pop(k, None)
+            if len(self._cache) >= self.MAX_ENTRIES:
+                for k, _ in sorted(self._cache.items(), key=lambda kv: kv[1][1])[: self.MAX_ENTRIES // 10]:
+                    self._cache.pop(k, None)
         self._cache[key] = (value, expires_at)
         log_info(f"Cached results for tool: {tool_name} with TTL {ttl_seconds}s", extra={"tool": tool_name, "ttl": ttl_seconds})
 
@@ -44,7 +57,7 @@ class MCPCache:
     def invalidate_tool(self, tool_name: str) -> None:
         keys_to_remove = [k for k in self._cache.keys() if k.startswith(f"{tool_name}#")]
         for k in keys_to_remove:
-            del self._cache[k]
+            self._cache.pop(k, None)
         log_info(f"Invalidated cache for tool: {tool_name}")
 
 mcp_cache = MCPCache()

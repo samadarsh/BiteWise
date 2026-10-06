@@ -261,7 +261,7 @@ def seed_demo_data(
         demo_expiry_overrides = {"Eggs": 2}
 
         for name, stock, cat, bulk in pantry_seed:
-            days = demo_expiry_overrides.get(name, get_category_default_expiry_days(cat))
+            days = demo_expiry_overrides.get(name, get_category_default_expiry_days(cat, name))
             expiry = (datetime.datetime.utcnow() + datetime.timedelta(days=days)).date() if days is not None else None
 
             db.add(PantryItem(

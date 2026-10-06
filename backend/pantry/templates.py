@@ -42,7 +42,7 @@ KITCHEN_TEMPLATE: List[Dict[str, Any]] = [
     {"name": "Ginger", "category": "Vegetables", "is_bulk": True},
     {"name": "Garlic", "category": "Vegetables", "is_bulk": True},
     {"name": "Lemon", "category": "Vegetables"},
-    {"name": "Banana", "category": "Vegetables"},
+    {"name": "Banana", "category": "Fruits"},
     # Spices & Oils
     {"name": "Oil", "category": "Spices", "is_bulk": True},
     {"name": "Salt", "category": "Spices", "is_bulk": True},
@@ -67,10 +67,31 @@ EXPIRY_DEFAULTS_DAYS: Dict[str, int] = {
     "Proteins": 4,
     "Bakery": 4,
     "Vegetables": 5,
+    "Fruits": 5,
     # Staples, Spices, Other → no expiry (return None)
 }
 
 
-def get_category_default_expiry_days(category: str) -> int | None:
-    """Returns the default expiry window in days for a category, or None if non-perishable."""
+# Long-keeping items inside perishable categories. Without these, ghee and
+# butter "expired" after 4 days and onions/potatoes/garlic after 5, so they
+# sat permanently in the expiring-soon list.
+ITEM_EXPIRY_OVERRIDES_DAYS: Dict[str, int] = {
+    "ghee": 180,
+    "butter": 30,
+    "cheese": 21,
+    "onion": 30,
+    "potato": 30,
+    "garlic": 30,
+    "ginger": 21,
+}
+
+
+def get_category_default_expiry_days(category: str, item_name: str | None = None) -> int | None:
+    """Returns the default expiry window in days for an item, or None if non-perishable.
+    A known long-keeping item name wins over its category's default."""
+    if item_name:
+        clean = item_name.lower().strip()
+        for name, days in ITEM_EXPIRY_OVERRIDES_DAYS.items():
+            if clean == name or clean == name + "s" or clean.endswith(" " + name) or clean.endswith(" " + name + "s"):
+                return days
     return EXPIRY_DEFAULTS_DAYS.get(category)

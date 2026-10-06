@@ -1,7 +1,7 @@
 import re
 import secrets
 import difflib
-from typing import List, Optional, Any, Dict
+from typing import Annotated, List, Optional, Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -43,18 +43,22 @@ class HouseholdResponse(BaseModel):
 
 class MemberCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    dietary_preference: str = "any"
-    allergies: List[str] = Field(default_factory=list)
-    calorie_target: Optional[int] = None
-    protein_target: Optional[int] = None
+    # The values the UI offers; anything else silently fell through every
+    # diet filter.
+    dietary_preference: str = Field("any", pattern="^(any|vegetarian|vegan)$")
+    allergies: List[Annotated[str, Field(max_length=50)]] = Field(default_factory=list, max_length=20)
+    calorie_target: Optional[int] = Field(None, ge=0, le=10000)
+    protein_target: Optional[int] = Field(None, ge=0, le=500)
 
 
 class MemberUpdateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    dietary_preference: str = "any"
-    allergies: List[str] = Field(default_factory=list)
-    calorie_target: Optional[int] = None
-    protein_target: Optional[int] = None
+    # The values the UI offers; anything else silently fell through every
+    # diet filter.
+    dietary_preference: str = Field("any", pattern="^(any|vegetarian|vegan)$")
+    allergies: List[Annotated[str, Field(max_length=50)]] = Field(default_factory=list, max_length=20)
+    calorie_target: Optional[int] = Field(None, ge=0, le=10000)
+    protein_target: Optional[int] = Field(None, ge=0, le=500)
 
 
 # Endpoints

@@ -190,17 +190,29 @@ def select_item(
         client = swiggy._get_initialized_client()
 
         address_id = session_record.address_id or "addr_home"
-        menu = client.get_restaurant_menu(addressId=address_id, restaurantId=restaurant_id)
+        resolved_restaurant_name = "Swiggy Restaurant"
+        if hasattr(client, "_restaurants"):
+            # Mock client: fixtures carry the name directly.
+            menu = client.get_restaurant_menu(addressId=address_id, restaurantId=restaurant_id)
+            for r in client._restaurants:
+                if r["id"] == restaurant_id:
+                    resolved_restaurant_name = r["name"]
+                    break
+        else:
+            # Live get_restaurant_menu returns {"restaurant": {"id", "name",
+            # ...}, "categories": [...]} (get_restaurant_menu.md). Reading
+            # only the items left every live order labelled "Swiggy Restaurant".
+            menu_meta = client.get_restaurant_menu_with_metadata(addressId=address_id, restaurantId=restaurant_id)
+            menu = menu_meta.get("items") or []
+            resolved_restaurant_name = (menu_meta.get("restaurant") or {}).get("name") or resolved_restaurant_name
 
-        item_details = next((i for i in menu if str(i.get("id")) == str(item_id)), None)
+        # Live menu items are keyed menu_item_id; mock items use id.
+        item_details = next(
+            (i for i in menu if str(i.get("menu_item_id") or i.get("id")) == str(item_id)),
+            None,
+        )
         if item_details:
             meal_name = item_details.get("name", "Swiggy Meal")
-            resolved_restaurant_name = "Swiggy Restaurant"
-            if hasattr(client, "_restaurants"):
-                for r in client._restaurants:
-                    if r["id"] == restaurant_id:
-                        resolved_restaurant_name = r["name"]
-                        break
 
             from agent.nutrition_estimator import NutritionEstimator
             desc = item_details.get("description") or item_details.get("item_description") or ""
@@ -300,10 +312,14 @@ def sync_cart(
         # rejection) — not "itemId", which every call site here previously
         # used, including the mock client, so nothing ever caught the
         # mismatch until a real order attempt failed.
+        # restaurantName is optional but recommended (update_food_cart.md:
+        # "the cart API does not always return it").
+        known_name = (session_record.selected_item_nutrition or {}).get("restaurant_name")
         client.update_food_cart(
             addressId=address_id,
             restaurantId=session_record.selected_restaurant_id,
-            cartItems=[{"menu_item_id": session_record.selected_item_id, "quantity": 1}]
+            cartItems=[{"menu_item_id": session_record.selected_item_id, "quantity": 1}],
+            restaurantName=known_name if known_name and known_name != "Swiggy Restaurant" else None,
         )
 
         # Fetch updated cart
@@ -707,8 +723,14 @@ def get_applicable_coupons(
         address_id = session_record.address_id or "addr_home"
         coupons = swiggy.fetch_food_coupons(restaurantId=restaurant_id, addressId=address_id)
 
-        # Filter COD coupons only
-        cod_coupons = [c for c in coupons if not c.get("requiresOnlinePayment", False)]
+        # Filter COD coupons only. Live coupon cards (fetch_food_coupons.md)
+        # document id/title/description but no "code" field, and the docs
+        # don't say which one apply_food_coupon's couponCode expects — so
+        # only coupons that carry an explicit code are offered.
+        cod_coupons = [
+            c for c in coupons
+            if c.get("code") and not c.get("requiresOnlinePayment", False)
+        ]
 
         return {
             "success": True,

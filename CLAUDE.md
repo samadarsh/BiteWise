@@ -27,7 +27,10 @@ Rules:
 3. Prefer `.md` page fetches over `llms-full.txt` when you know the
    exact area - it's cheaper on context.
 
-Note: the Swiggy **Food** server exposes **14 tools** (verified against `llms.txt`).
+Note: the Swiggy **Food** server exposes **20 tools** (verified against `llms.txt`, 2026-10),
+including `get_payment_options`, `check_payment_status` and `confirm_order` for UPI.
+BiteWise only places Cash/COD orders; a UPI `place_food_order` returns
+`PENDING_PAYMENT`, which is not a placed order.
 
 ## Frontend caveat
 

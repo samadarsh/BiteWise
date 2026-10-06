@@ -410,7 +410,8 @@ CATEGORY_KEYWORDS: Dict[str, List[str]] = {
     "Dairy": ["milk", "curd", "yogurt", "butter", "ghee", "paneer", "cheese", "cream"],
     "Proteins": ["egg", "chicken", "mutton", "fish", "prawns", "tofu", "soya"],
     "Vegetables": ["tomato", "onion", "potato", "spinach", "lemon", "cauliflower",
-                    "palak", "banana", "green chilli", "ginger", "garlic", "capsicum", "carrot"],
+                    "palak", "green chilli", "ginger", "garlic", "capsicum", "carrot"],
+    "Fruits": ["banana", "apple", "mango", "orange", "grapes", "papaya"],
     "Staples": ["rice", "dal", "atta", "wheat", "oil", "sugar", "salt", "oats",
                 "mustard seeds", "peanuts", "peanut butter", "toor dal", "moong dal",
                 "poha", "maida"],
@@ -437,7 +438,7 @@ def get_effective_expiry(item: PantryItem) -> Optional[datetime.date]:
     """Returns effective expiry: manual date if set, otherwise category default from added_at."""
     if item.expiry_date:
         return item.expiry_date
-    default_days = get_category_default_expiry_days(item.category)
+    default_days = get_category_default_expiry_days(item.category, item.item_name)
     if default_days and item.added_at:
         return (item.added_at + datetime.timedelta(days=default_days)).date()
     return None

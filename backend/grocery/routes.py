@@ -55,7 +55,7 @@ class GroceryListResponse(BaseModel):
 
 class ItemCreateRequest(BaseModel):
     item_name: str = Field(..., min_length=1, max_length=100)
-    quantity: float = Field(1.0, ge=0.01)
+    quantity: float = Field(1.0, ge=0.01, le=100)
     unit: str = Field("unit", min_length=1, max_length=20)
 
 

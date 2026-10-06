@@ -586,12 +586,20 @@ class SwiggyFoodMCPClient(_SwiggyMCPTransport):
         if couponCode is not None:
             args["couponCode"] = couponCode
         res = self.call_tool("fetch_food_coupons", args)
-        # "coupons" key unconfirmed against a real non-empty response (the
-        # only live restaurant checked had zero coupons, which omits
-        # structuredContent entirely) — follows the same naming convention as
-        # every other confirmed list tool; _unwrap_list degrades safely to []
-        # either way rather than crashing on a shape mismatch.
-        return self._unwrap_list(self._unpack_and_normalize(res), "coupons")
+        data = self._unpack_and_normalize(res)
+        # fetch_food_coupons.md: coupons are grouped as
+        # data.coupon_sections[].coupons[] — there is no flat "coupons" list,
+        # which is what this used to read, so live coupons always came back
+        # empty. Flatten the sections; skip ones Swiggy marks not applicable.
+        if isinstance(data, dict) and isinstance(data.get("coupon_sections"), list):
+            flattened: List[Dict[str, Any]] = []
+            for section in data["coupon_sections"]:
+                coupons = section.get("coupons") if isinstance(section, dict) else None
+                for coupon in coupons if isinstance(coupons, list) else []:
+                    if isinstance(coupon, dict) and coupon.get("applicable") is not False:
+                        flattened.append(coupon)
+            return flattened
+        return self._unwrap_list(data, "coupons")
 
     def apply_food_coupon(self, couponCode: str, addressId: str, cartId: Optional[str] = None) -> Dict[str, Any]:
         args = {"couponCode": couponCode, "addressId": addressId}

@@ -3,15 +3,17 @@ from pydantic import BaseModel, Field
 from datetime import date, datetime
 
 class ManualEntrySchema(BaseModel):
-    meal_name: str = Field(..., min_length=1)
-    calories: float = Field(..., ge=0)
-    protein_g: float = Field(..., ge=0)
-    carbs_g: Optional[float] = Field(default=None, ge=0)
-    fat_g: Optional[float] = Field(default=None, ge=0)
+    meal_name: str = Field(..., min_length=1, max_length=200)
+    calories: float = Field(..., ge=0, le=10000)
+    protein_g: float = Field(..., ge=0, le=1000)
+    carbs_g: Optional[float] = Field(default=None, ge=0, le=2000)
+    fat_g: Optional[float] = Field(default=None, ge=0, le=1000)
     # Defaults reproduce the pre-existing manual-entry behavior exactly —
     # only a caller that explicitly overrides these (e.g. saving a reviewed
     # food-image-scan result) sees anything different.
-    source: str = Field(default="manual")
+    # "order" entries are written only by the server when an order is
+    # placed; clients may log manual entries or reviewed photo scans.
+    source: str = Field(default="manual", pattern="^(manual|image_scan)$")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     is_estimated: bool = Field(default=False)
     micronutrients: Optional[dict] = Field(default=None)

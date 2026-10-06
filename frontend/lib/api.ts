@@ -61,7 +61,11 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     let errorCode: string | undefined;
     try {
       const data = await response.json();
-      errMsg = data.detail || data.message || errMsg;
+      // FastAPI validation errors (422) send detail as a list of objects;
+      // showing it raw rendered "[object Object]".
+      errMsg = Array.isArray(data.detail)
+        ? data.detail.map((d: { msg?: string; loc?: unknown[] }) => `${(d.loc || []).slice(-1)[0] ?? "input"}: ${d.msg ?? "invalid"}`).join("; ")
+        : data.detail || data.message || errMsg;
       errorCode = data.error_code;
     } catch {
       try {
