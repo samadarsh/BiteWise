@@ -31,6 +31,14 @@ class Settings:
     sentry_dsn: str = ""
     gemini_api_key: str = ""
 
+def _normalize_database_url(url: str) -> str:
+    """Hosted Postgres providers often hand out postgres://... URLs, a scheme
+    SQLAlchemy 2.x no longer accepts."""
+    if url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://"):]
+    return url
+
+
 def get_settings() -> Settings:
     cors_origins_str = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
     origins = [orig.strip() for orig in cors_origins_str.split(",") if orig.strip()]
@@ -39,7 +47,7 @@ def get_settings() -> Settings:
         app_env=os.getenv("APP_ENV", "development"),
         use_mock_mcp=os.getenv("USE_MOCK_MCP", "true").lower() == "true",
         swiggy_env=os.getenv("SWIGGY_ENV", "mock"),
-        database_url=os.getenv("DATABASE_URL", "sqlite:///./nutriorder.db"),
+        database_url=_normalize_database_url(os.getenv("DATABASE_URL", "sqlite:///./nutriorder.db")),
         encryption_key=os.getenv("ENCRYPTION_KEY", ""),
         swiggy_mcp_base_url=os.getenv("SWIGGY_MCP_BASE_URL", "https://mcp.swiggy.com/food"),
         swiggy_instamart_mcp_base_url=os.getenv("SWIGGY_INSTAMART_MCP_BASE_URL", "https://mcp.swiggy.com/im"),

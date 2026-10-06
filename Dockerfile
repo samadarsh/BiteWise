@@ -33,6 +33,9 @@ COPY backend /app/backend
 COPY agent /app/agent
 COPY config /app/config
 COPY mcp /app/mcp
+# Migrations, so `alembic upgrade head` can run inside the image.
+COPY alembic /app/alembic
+COPY alembic.ini /app/alembic.ini
 
 EXPOSE 8000
 
