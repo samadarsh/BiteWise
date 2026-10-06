@@ -1,6 +1,7 @@
 import json
 from typing import Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from backend.auth.sessions import get_current_user_id
 from backend.db.session import get_db
@@ -65,8 +66,13 @@ def get_user_profile(
             priority_weights={}
         )
         db.add(profile)
-        db.commit()
-        db.refresh(profile)
+        try:
+            db.commit()
+            db.refresh(profile)
+        except IntegrityError:
+            # A concurrent request provisioned it first; use that row.
+            db.rollback()
+            profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
 
     return UserProfileSchema(
         protein_target=profile.protein_target,

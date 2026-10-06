@@ -23,8 +23,9 @@ page.on("pageerror", (e) => pageErrors.push(String(e)));
 // ── 1. Landing: anonymous CTAs ──
 await page.goto("http://localhost:3000/", { waitUntil: "networkidle" });
 ok("landing loads", await page.locator("text=BiteWise").first().isVisible());
-ok("Get Started CTA visible", await page.locator("text=Get Started Free").first().isVisible().catch(() => false));
-ok("Sandbox demo CTA visible", await page.locator("text=Try Sandbox Demo").isVisible().catch(() => false));
+// The CTAs render once the landing page's backend health check returns.
+ok("Get Started CTA visible", await page.locator("text=Get Started Free").first().waitFor({ state: "visible", timeout: 10000 }).then(() => true).catch(() => false));
+ok("Sandbox demo CTA visible", await page.locator("text=Try Sandbox Demo").waitFor({ state: "visible", timeout: 10000 }).then(() => true).catch(() => false));
 
 // ── 2. Demo login → platform chooser (first-time session) ──
 await page.click("text=Try Sandbox Demo");
@@ -153,8 +154,10 @@ await coachPage2.close();
 await page.locator('aside nav a[href="/app/nutriorder/order"]').click();
 await page.waitForURL("**/app/nutriorder/order", { timeout: 10000 });
 await page.waitForTimeout(800);
-ok("navigating back to Order still shows the tracking view", await page.locator("text=Tracking").first().isVisible().catch(() => false));
+ok("navigating back to Order still shows the tracking view", await page.locator("text=Tracking").first().waitFor({ state: "visible", timeout: 10000 }).then(() => true).catch(() => false));
 
+// The "rate this meal" prompt opens 15s after placing and covers the page.
+if (await page.locator("button:text-is('Skip')").isVisible().catch(() => false)) await page.click("button:text-is('Skip')");
 await page.click("text=Back to Coach");
 await page.waitForTimeout(1500);
 ok("Back to Coach button returns to the Coach hub", page.url().includes("/app/nutriorder/coach"));

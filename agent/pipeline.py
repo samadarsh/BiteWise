@@ -6,6 +6,12 @@ from agent.ranking import RankingEngine
 from agent.caching import mcp_cache
 from agent.resilience import retry_with_backoff
 
+_UNCACHEABLE_TOOLS = {
+    "get_addresses", "get_food_cart", "update_food_cart", "flush_food_cart",
+    "get_food_orders", "place_food_order", "apply_food_coupon", "fetch_food_coupons",
+}
+
+
 class NutriOrderPipeline:
     def __init__(self, mcp_client: Any, memory_manager: Any, personalization_engine: Any) -> None:
         self.mcp = mcp_client
@@ -399,8 +405,14 @@ class NutriOrderPipeline:
 
     def _execute_mcp_call(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         """Call MCP client with caching and retry decorators."""
+        # The cache is process-wide and keyed only on tool + arguments, so
+        # per-user results must never go in it: get_addresses({}) was served
+        # to every user for an hour. Cart/order state is also never cached
+        # (Swiggy's multi-turn-state.md: "Don't cache cart state").
+        cacheable = tool_name not in _UNCACHEABLE_TOOLS
+
         # 1. Check cache first
-        cached_val = mcp_cache.get(tool_name, arguments)
+        cached_val = mcp_cache.get(tool_name, arguments) if cacheable else None
         if cached_val is not None:
             return cached_val
 
@@ -429,7 +441,8 @@ class NutriOrderPipeline:
         elif tool_name == "get_addresses":
             ttl = 3600.0
             
-        mcp_cache.set(tool_name, arguments, val, ttl)
+        if cacheable:
+            mcp_cache.set(tool_name, arguments, val, ttl)
         return val
 
     @staticmethod

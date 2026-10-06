@@ -14,6 +14,10 @@ httpx>=0.27.0
 
 # Database schema migrations (see README's "Database Migrations" section)
 alembic>=1.13.0
+# PostgreSQL driver. SQLAlchemy 2.1 maps postgresql:// to psycopg (v3);
+# without it a Postgres DATABASE_URL can't connect at all (the Dockerfile
+# already installs libpq for it).
+psycopg[binary]>=3.2
 
 # Error tracking — no-op unless SENTRY_DSN is set (see config/settings.py)
 sentry-sdk[fastapi]>=2.0.0

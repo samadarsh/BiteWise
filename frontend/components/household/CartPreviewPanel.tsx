@@ -60,11 +60,11 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
     return () => clearInterval(interval);
   }, [placedOrder]);
 
-  const handleFetchPreview = async () => {
+  const handleFetchPreview = async (addressId: string = selectedAddress) => {
     setLoading(true);
     setPlaceError("");
     try {
-      const data = await onGetCartPreview(selectedAddress || undefined);
+      const data = await onGetCartPreview(addressId || undefined);
       setPreview(data);
     } catch (err) {
       setPlaceError(`Failed to build cart preview: ${err instanceof Error ? err.message : String(err)}`);
@@ -169,7 +169,7 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
       <div className="flex justify-between items-center border-b border-border pb-4">
         <h3 className="text-lg font-bold text-text flex items-center gap-2">⚡ Instamart Checkout</h3>
         <button
-          onClick={handleFetchPreview}
+          onClick={() => handleFetchPreview()}
           disabled={loading}
           className="text-xs font-semibold px-3 py-1.5 rounded bg-pantry hover:brightness-105 disabled:opacity-50 text-pantry-contrast transition"
         >
@@ -194,8 +194,13 @@ export default function CartPreviewPanel({ onGetCartPreview, onOrderPlaced }: Ca
               setSelectedAddress(e.target.value);
               // Instamart pricing/availability is per-address — a preview
               // built for another address (or none) must not be confirmed.
-              setPreview(null);
+              // Rebuild it for the new address rather than making the user
+              // start over.
               setCheckoutConfirmed(false);
+              if (preview) {
+                setPreview(null);
+                handleFetchPreview(e.target.value);
+              }
             }}
             className="min-w-0 flex-1 truncate text-sm font-bold text-text bg-surface border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-pantry cursor-pointer"
           >

@@ -61,7 +61,11 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     let errorCode: string | undefined;
     try {
       const data = await response.json();
-      errMsg = data.detail || data.message || errMsg;
+      // FastAPI validation errors (422) send detail as a list of objects;
+      // showing it raw rendered "[object Object]".
+      errMsg = Array.isArray(data.detail)
+        ? data.detail.map((d: { msg?: string; loc?: unknown[] }) => `${(d.loc || []).slice(-1)[0] ?? "input"}: ${d.msg ?? "invalid"}`).join("; ")
+        : data.detail || data.message || errMsg;
       errorCode = data.error_code;
     } catch {
       try {
@@ -204,6 +208,18 @@ export interface CartInfo {
   bill?: {
     total: number;
   };
+}
+
+/** GET /orders/session/{id}/track — Swiggy's own status for a placed order. */
+export interface OrderTracking {
+  tracking_available: boolean;
+  active: boolean;
+  order_id: string;
+  order_status: string | null;
+  title: string | null;
+  subtitle: string | null;
+  eta_text: string | null;
+  progress_percentage: number | null;
 }
 
 export interface CartResponse {
@@ -596,6 +612,10 @@ export const api = {
   /**
    * Applies a coupon code to the session cart.
    */
+  async trackOrder(sessionId: string): Promise<OrderTracking> {
+    return apiFetch<OrderTracking>(`/orders/session/${sessionId}/track`);
+  },
+
   async applyCoupon(sessionId: string, couponCode: string): Promise<CartResponse> {
     return apiFetch<CartResponse>(`/orders/session/${sessionId}/coupon/apply`, {
       method: "POST",
@@ -1041,6 +1061,8 @@ export interface BiteWiseUser {
 export interface AuthStatusResponse {
   authenticated: boolean;
   user: BiteWiseUser | null;
+  /** Present when the backend renewed the session (legacy or ageing token). */
+  session_token?: string | null;
 }
 
 export interface GoogleLoginPayload {

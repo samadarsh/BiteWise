@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
-import { api, ApiError, UserProfile, Address, RecommendationMeal, CartInfo, Coupon, isSwiggyReauthError, SWIGGY_REAUTH_MESSAGE } from "./api";
+import { api, ApiError, UserProfile, Address, RecommendationMeal, CartInfo, Coupon, OrderTracking, isSwiggyReauthError, SWIGGY_REAUTH_MESSAGE } from "./api";
 import { PriorityWeights } from "../components/PriorityControls";
 import { RelaxationOption } from "../components/RelaxationOptions";
 import { CoachDashboardRef } from "../components/CoachDashboard";
@@ -54,7 +54,7 @@ interface NutriOrderContextType {
   checkoutConfirmed: boolean;
   orderPlacing: boolean;
   placedOrderId: string;
-  trackingStep: number;
+  tracking: OrderTracking | null;
   applicableCoupons: Coupon[];
   couponsLoading: boolean;
   appliedCoupon: string;
@@ -120,8 +120,10 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
   const [checkoutConfirmed, setCheckoutConfirmed] = useState<boolean>(false);
   const [orderPlacing, setOrderPlacing] = useState<boolean>(false);
   const [placedOrderId, setPlacedOrderId] = useState<string>("");
-  const [trackingStep, setTrackingStep] = useState<number>(0);
-  const [trackingIntervalId, setTrackingIntervalId] = useState<ReturnType<typeof setInterval> | null>(null);
+  // Real delivery status from Swiggy (GET /orders/session/{id}/track) —
+  // replaces a 4-step animation that ran on a timer.
+  const [tracking, setTracking] = useState<OrderTracking | null>(null);
+  const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [applicableCoupons, setApplicableCoupons] = useState<Coupon[]>([]);
   const [couponsLoading, setCouponsLoading] = useState<boolean>(false);
   const [appliedCoupon, setAppliedCoupon] = useState<string>("");
@@ -147,6 +149,10 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
   // doesn't lose it. Cleared once there's nothing in flight to protect.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Until the load effect has had its chance to restore the snapshot,
+    // don't touch it: on first render activeSessionId is still "", and this
+    // used to delete the saved order before it could be read back.
+    if (!hasRestoredInflightOrderRef.current) return;
     if (!activeSessionId) {
       sessionStorage.removeItem(INFLIGHT_ORDER_STORAGE_KEY);
       return;
@@ -521,16 +527,8 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
       setSessionStatus(res.status);
       coachDashboardRef.current?.refreshCoachData();
 
-      let step = 0;
-      const interval = setInterval(() => {
-        step += 1;
-        setTrackingStep(step);
-        if (step >= 3) {
-          clearInterval(interval);
-          setShowFeedbackModal(true);
-        }
-      }, 4000);
-      setTrackingIntervalId(interval);
+      // A gentle prompt to rate the meal — not a claim that it was delivered.
+      feedbackTimeoutRef.current = setTimeout(() => setShowFeedbackModal(true), 15000);
     } catch (err) {
       if (isSwiggyReauthError(err)) {
         refreshAuth(); // stale token was purged server-side — reflect "not connected" immediately, not just show a message
@@ -542,6 +540,35 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
       setOrderPlacing(false);
     }
   };
+
+  // Poll Swiggy's real tracking while an order is placed. Swiggy asks for no
+  // faster than every 10 seconds; stop once the order is no longer active.
+  useEffect(() => {
+    if (!placedOrderId || placedOrderId === CONFIRMED_NO_ID_SENTINEL || !activeSessionId) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      try {
+        const res = await api.trackOrder(activeSessionId);
+        if (stopped) return;
+        setTracking(res);
+        if (!res.tracking_available || !res.active) return;
+      } catch (err) {
+        if (stopped) return;
+        console.warn("Order tracking unavailable", err);
+      }
+      timer = setTimeout(poll, 15000);
+    };
+    poll();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [placedOrderId, activeSessionId]);
+
+  useEffect(() => () => {
+    if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+  }, []);
 
   const handleFeedbackSubmit = async (feedback: { rating: number; filling: string; spicy: string; again: boolean }) => {
     setFeedbackLoading(true);
@@ -603,10 +630,11 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
   };
 
   const handleReset = () => {
-    if (trackingIntervalId) {
-      clearInterval(trackingIntervalId);
-      setTrackingIntervalId(null);
+    if (feedbackTimeoutRef.current) {
+      clearTimeout(feedbackTimeoutRef.current);
+      feedbackTimeoutRef.current = null;
     }
+    setTracking(null);
     setSelectedAddress("");
     setActiveSessionId("");
     setSessionStatus("START");
@@ -616,7 +644,6 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
     setCartPreview(null);
     setCheckoutConfirmed(false);
     setPlacedOrderId("");
-    setTrackingStep(0);
     setAppliedCoupon("");
     setApplicableCoupons([]);
   };
@@ -669,7 +696,7 @@ export function NutriOrderProvider({ children }: { children: React.ReactNode }) 
         checkoutConfirmed,
         orderPlacing,
         placedOrderId,
-        trackingStep,
+        tracking,
         applicableCoupons,
         couponsLoading,
         appliedCoupon,

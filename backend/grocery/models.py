@@ -1,10 +1,12 @@
 import datetime
-from sqlalchemy import Column, String, DateTime, Float, ForeignKey, Boolean, JSON, func, Date
+from sqlalchemy import Column, String, DateTime, Float, ForeignKey, Boolean, JSON, func, Date, Index
 from sqlalchemy.orm import relationship
 from backend.db.session import Base
 
 class GroceryList(Base):
     __tablename__ = "grocery_lists"
+    # One active list per household (see get_or_create_active_list).
+    __table_args__ = (Index("uq_grocery_lists_household_id", "household_id", unique=True),)
 
     id = Column(String, primary_key=True, index=True)
     household_id = Column(String, ForeignKey("households.id"), nullable=False)

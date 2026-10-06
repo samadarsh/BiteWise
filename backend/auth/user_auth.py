@@ -1,4 +1,5 @@
 import secrets
+import time
 import requests
 import datetime
 from typing import Dict, Any, Optional
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
 from backend.db.models import User, UserProfile, SwiggyToken
-from backend.auth.sessions import resolve_current_user_id, clear_session_cookies, decrypt_token, get_current_user_id, set_session_cookies, sign_session
+from backend.auth.sessions import SESSION_RENEW_AFTER_SECONDS, resolve_current_user_id, clear_session_cookies, decrypt_token, get_current_user_id, set_session_cookies, sign_session
 from backend.auth.rate_limiter import mutating_rate_limiter
 from config.settings import get_settings
 
@@ -37,16 +38,27 @@ def _is_swiggy_token_valid(token_record: Optional[SwiggyToken]) -> bool:
 @router.get("/me")
 def get_my_profile(
     request: Request,
+    response: Response,
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Returns current authenticated user details, dietary profile, and Swiggy connection status.
     Strictly checks active session cookie (bitewise_session / nutriorder_session).
+
+    Also renews the session: a legacy (non-expiring) token, or one older than
+    SESSION_RENEW_AFTER_SECONDS, gets a fresh token — set as cookies and
+    returned as `session_token` for the frontend's Bearer copy.
     """
     try:
         user_id = resolve_current_user_id(request, strict=True)
     except HTTPException:
         return {"authenticated": False, "user": None}
+
+    renewed_token = None
+    issued_at_ms = getattr(request.state, "session_issued_at_ms", None)
+    if issued_at_ms is None or time.time() - issued_at_ms / 1000 > SESSION_RENEW_AFTER_SECONDS:
+        set_session_cookies(request, response, user_id)
+        renewed_token = sign_session(user_id)
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -77,6 +89,7 @@ def get_my_profile(
 
     return {
         "authenticated": True,
+        "session_token": renewed_token,
         "user": {
             "id": user.id,
             "email": user.email,
@@ -321,9 +334,20 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)) 
     """
     settings = get_settings()
     try:
-        user_id = resolve_current_user_id(request, strict=False)
+        # strict: in mock mode a session-less request would otherwise resolve
+        # to the shared demo_user and revoke/disconnect that account.
+        user_id = resolve_current_user_id(request, strict=True)
     except Exception:
         user_id = None
+
+    if user_id:
+        # Revoke every session token issued so far for this user. Session
+        # tokens are stateless HMACs, so clearing the cookie alone left a
+        # copied token (or the frontend's Bearer copy) working after logout.
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            user.sessions_revoked_at = datetime.datetime.fromtimestamp(time.time())
+            db.commit()
 
     if user_id:
         token_record = db.query(SwiggyToken).filter(SwiggyToken.user_id == user_id).first()

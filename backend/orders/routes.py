@@ -190,17 +190,29 @@ def select_item(
         client = swiggy._get_initialized_client()
 
         address_id = session_record.address_id or "addr_home"
-        menu = client.get_restaurant_menu(addressId=address_id, restaurantId=restaurant_id)
+        resolved_restaurant_name = "Swiggy Restaurant"
+        if hasattr(client, "_restaurants"):
+            # Mock client: fixtures carry the name directly.
+            menu = client.get_restaurant_menu(addressId=address_id, restaurantId=restaurant_id)
+            for r in client._restaurants:
+                if r["id"] == restaurant_id:
+                    resolved_restaurant_name = r["name"]
+                    break
+        else:
+            # Live get_restaurant_menu returns {"restaurant": {"id", "name",
+            # ...}, "categories": [...]} (get_restaurant_menu.md). Reading
+            # only the items left every live order labelled "Swiggy Restaurant".
+            menu_meta = client.get_restaurant_menu_with_metadata(addressId=address_id, restaurantId=restaurant_id)
+            menu = menu_meta.get("items") or []
+            resolved_restaurant_name = (menu_meta.get("restaurant") or {}).get("name") or resolved_restaurant_name
 
-        item_details = next((i for i in menu if str(i.get("id")) == str(item_id)), None)
+        # Live menu items are keyed menu_item_id; mock items use id.
+        item_details = next(
+            (i for i in menu if str(i.get("menu_item_id") or i.get("id")) == str(item_id)),
+            None,
+        )
         if item_details:
             meal_name = item_details.get("name", "Swiggy Meal")
-            resolved_restaurant_name = "Swiggy Restaurant"
-            if hasattr(client, "_restaurants"):
-                for r in client._restaurants:
-                    if r["id"] == restaurant_id:
-                        resolved_restaurant_name = r["name"]
-                        break
 
             from agent.nutrition_estimator import NutritionEstimator
             desc = item_details.get("description") or item_details.get("item_description") or ""
@@ -300,10 +312,14 @@ def sync_cart(
         # rejection) — not "itemId", which every call site here previously
         # used, including the mock client, so nothing ever caught the
         # mismatch until a real order attempt failed.
+        # restaurantName is optional but recommended (update_food_cart.md:
+        # "the cart API does not always return it").
+        known_name = (session_record.selected_item_nutrition or {}).get("restaurant_name")
         client.update_food_cart(
             addressId=address_id,
             restaurantId=session_record.selected_restaurant_id,
-            cartItems=[{"menu_item_id": session_record.selected_item_id, "quantity": 1}]
+            cartItems=[{"menu_item_id": session_record.selected_item_id, "quantity": 1}],
+            restaurantName=known_name if known_name and known_name != "Swiggy Restaurant" else None,
         )
 
         # Fetch updated cart
@@ -555,8 +571,12 @@ def place_order(
                 error_detail = f"Checkout blocked: A recent order was already placed. Duplicate prevention active. Detail: {error_detail}"
             raise HTTPException(status_code=status_code, detail=error_detail)
 
-        # Transition status to ORDER_PLACED
-        transition_session_status(db, session_record, OrderStatus.ORDER_PLACED)
+        # Transition status to ORDER_PLACED (the event keeps Swiggy's order
+        # id so /track can follow the real order later).
+        transition_session_status(
+            db, session_record, OrderStatus.ORDER_PLACED,
+            payload={"order_id": res.get("order_id")},
+        )
 
         # Record final details
         session_record.selected_restaurant_id = cart_info.get("restaurantId") or session_record.selected_restaurant_id
@@ -592,7 +612,82 @@ def place_order(
 
 
 import uuid
-from backend.db.models import OrderFeedback, UserProfile
+from backend.db.models import OrderEvent, OrderFeedback, UserProfile
+
+
+def _placed_order_id(db: Session, session_id: str) -> Optional[str]:
+    events = (
+        db.query(OrderEvent)
+        .filter(OrderEvent.order_session_id == session_id)
+        .order_by(OrderEvent.id.desc())
+        .all()
+    )
+    for e in events:
+        payload = e.payload or {}
+        if payload.get("to_status") == OrderStatus.ORDER_PLACED.value and payload.get("order_id"):
+            return str(payload["order_id"])
+    return None
+
+
+def _tracking_view(data: Any, order_id: str) -> Dict[str, Any]:
+    """Normalizes track_food_order. Live (track_food_order.md):
+    data.orders[] of {orderId, title, subtitle, etaText, orderStatus,
+    progressPercentage (string)}; an order missing from the list is no
+    longer active. Mock: a flat {orderId, status, message}."""
+    view: Dict[str, Any] = {"active": False, "order_id": order_id, "order_status": None, "title": None,
+                            "subtitle": None, "eta_text": None, "progress_percentage": None}
+    if not isinstance(data, dict):
+        return view
+    orders = data.get("orders")
+    if isinstance(orders, list):
+        match = next((o for o in orders if isinstance(o, dict) and str(o.get("orderId")) == order_id), None)
+        if not match:
+            view["title"] = data.get("statusMessage")
+            return view
+        try:
+            progress = float(str(match.get("progressPercentage")).rstrip("%")) if match.get("progressPercentage") is not None else None
+        except ValueError:
+            progress = None
+        view.update(active=True, order_status=match.get("orderStatus"), title=match.get("title"),
+                    subtitle=match.get("subtitle"), eta_text=match.get("etaText"), progress_percentage=progress)
+        return view
+    view.update(active=True, order_status=data.get("status"), title=data.get("message"))
+    return view
+
+
+@router.get("/session/{session_id}/track")
+def track_order(
+    session_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """Real delivery status for a placed order via Swiggy's track_food_order.
+    The frontend used to animate "Accepted / Preparing / Arriving" on a
+    timer. Swiggy asks clients to poll no faster than every 10 seconds
+    (order-food.md)."""
+    session_record = db.query(OrderSession).filter(
+        OrderSession.id == session_id,
+        OrderSession.user_id == user_id
+    ).first()
+    if not session_record:
+        raise HTTPException(status_code=404, detail="Order session not found.")
+    if session_record.status not in (OrderStatus.ORDER_PLACED.value, OrderStatus.TRACKING.value):
+        raise HTTPException(status_code=400, detail="This order hasn't been placed yet.")
+
+    order_id = _placed_order_id(db, session_id)
+    if not order_id:
+        # Without Swiggy's order id, an id-less call returns *all* active
+        # orders — we can't tell which one is this order.
+        return {"tracking_available": False, **_tracking_view(None, "")}
+
+    try:
+        from backend.mcp.swiggy_client import ProductionSwiggyClient
+        data = ProductionSwiggyClient(user_id=user_id).track_food_order(orderId=order_id)
+    except (SwiggyAuthError, SwiggyMCPError):
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Order tracking failed: {str(e)}")
+    return {"tracking_available": True, **_tracking_view(data, order_id)}
 
 class ApplyCouponSchema(BaseModel):
     coupon_code: str = Field(..., min_length=1)
@@ -628,8 +723,14 @@ def get_applicable_coupons(
         address_id = session_record.address_id or "addr_home"
         coupons = swiggy.fetch_food_coupons(restaurantId=restaurant_id, addressId=address_id)
 
-        # Filter COD coupons only
-        cod_coupons = [c for c in coupons if not c.get("requiresOnlinePayment", False)]
+        # Filter COD coupons only. Live coupon cards (fetch_food_coupons.md)
+        # document id/title/description but no "code" field, and the docs
+        # don't say which one apply_food_coupon's couponCode expects — so
+        # only coupons that carry an explicit code are offered.
+        cod_coupons = [
+            c for c in coupons
+            if c.get("code") and not c.get("requiresOnlinePayment", False)
+        ]
 
         return {
             "success": True,

@@ -1,7 +1,7 @@
 import secrets
 import datetime
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from backend.db.session import get_db
@@ -50,18 +50,18 @@ class QuickStockItem(BaseModel):
 
 
 class QuickStockRequest(BaseModel):
-    items: List[QuickStockItem]
+    items: List[QuickStockItem] = Field(..., max_length=200)
 
 
 class MarkPurchasedRequest(BaseModel):
-    item_ids: List[str]
+    item_ids: List[str] = Field(..., max_length=500)
 
 
 # ── Helpers ─────────────────────────────────────────
 
-def _auto_expiry(category: str) -> Optional[datetime.date]:
+def _auto_expiry(category: str, item_name: Optional[str] = None) -> Optional[datetime.date]:
     """Compute a default expiry date for perishable categories."""
-    days = get_category_default_expiry_days(category)
+    days = get_category_default_expiry_days(category, item_name)
     if days is not None:
         return (datetime.datetime.utcnow() + datetime.timedelta(days=days)).date()
     return None
@@ -123,7 +123,7 @@ def add_or_update_pantry_item(
 
     # Create new item
     item_id = f"pantry_{secrets.token_hex(4)}"
-    expiry = req.expiry_date or (_auto_expiry(category) if req.stock_level != "empty" else None)
+    expiry = req.expiry_date or (_auto_expiry(category, req.item_name) if req.stock_level != "empty" else None)
     new_item = PantryItem(
         id=item_id,
         household_id=household.id,
@@ -189,7 +189,7 @@ def quick_stock_pantry(
 
         category = item.category or _classify_item(clean_name)
         stock_level = item.stock_level if item.stock_level in VALID_STOCK_LEVELS else "full"
-        expiry = _auto_expiry(category) if stock_level != "empty" else None
+        expiry = _auto_expiry(category, clean_name) if stock_level != "empty" else None
 
         item_id = f"pantry_{secrets.token_hex(4)}"
         new_item = PantryItem(
@@ -309,7 +309,7 @@ def cook_recipe(
 
 @router.get("/expiring")
 def get_expiring_items(
-    days: int = 3,
+    days: int = Query(3, ge=0, le=60),
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -332,7 +332,7 @@ def get_expiring_items(
         effective_expiry = item.expiry_date
         if not effective_expiry:
             # Fallback to category default
-            default_days = get_category_default_expiry_days(item.category)
+            default_days = get_category_default_expiry_days(item.category, item.item_name)
             if default_days and item.added_at:
                 effective_expiry = (item.added_at + datetime.timedelta(days=default_days)).date()
 
@@ -402,7 +402,7 @@ def mark_grocery_items_purchased_and_restock(db: Session, household_id: str, ite
             pantry_item.added_at = datetime.datetime.utcnow()
             pantry_item.bulk_use_count = 0
             # Recompute expiry for perishables
-            pantry_item.expiry_date = _auto_expiry(pantry_item.category)
+            pantry_item.expiry_date = _auto_expiry(pantry_item.category, pantry_item.item_name)
             restocked.append(pantry_item.item_name)
 
     db.commit()

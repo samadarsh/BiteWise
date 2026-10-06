@@ -5,9 +5,10 @@ import hmac
 import hashlib
 import secrets
 import time
-from typing import Optional
+from typing import Optional, Tuple
 from fastapi import Request, HTTPException, Response
 from fastapi.security import APIKeyCookie
+from sqlalchemy.exc import IntegrityError
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from config.settings import get_settings
 
@@ -52,37 +53,77 @@ def _get_session_secret() -> bytes:
     return secret.encode("utf-8")
 
 
-def sign_session(user_id: str) -> str:
-    """Produce a tamper-evident session token of the form `<user_id>.<hmac>`.
+SESSION_TTL_SECONDS = 30 * 86400
+# /auth/me hands out a fresh token once the current one is this old, so an
+# active user's 30-day session slides forward instead of expiring.
+SESSION_RENEW_AFTER_SECONDS = 7 * 86400
+
+
+def sign_session(user_id: str, issued_at_ms: Optional[int] = None) -> str:
+    """Produce a tamper-evident session token `<user_id>.<issued_at_ms>.<hmac>`.
+
+    The issue time lets tokens expire (SESSION_TTL_SECONDS) and be revoked
+    (User.sessions_revoked_at). The old format `<user_id>.<hmac>` had
+    neither: a leaked token worked forever, even after logout.
 
     If no secret is configured (only possible in a misconfigured local dev box),
-    degrade to the raw user_id so guest login still works; verify_session will
-    then reject it and the dev/mock fallback in get_current_user_id takes over.
+    degrade to the raw user_id; verify_session rejects it.
     """
     try:
         secret = _get_session_secret()
     except Exception:
         return user_id
-    sig = hmac.new(secret, user_id.encode("utf-8"), hashlib.sha256).hexdigest()
-    return f"{user_id}.{sig}"
+    issued = issued_at_ms if issued_at_ms is not None else int(time.time() * 1000)
+    body = f"{user_id}.{issued}"
+    sig = hmac.new(secret, body.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{body}.{sig}"
+
+
+def parse_session(value: Optional[str]) -> Optional[Tuple[str, Optional[int]]]:
+    """Returns (user_id, issued_at_ms) for a validly-signed, unexpired token.
+
+    issued_at_ms is None for a legacy `<user_id>.<hmac>` token: those are
+    still accepted (so existing guests keep their accounts) until the user
+    logs out, which revokes them. Constant-time comparison; never trusts an
+    unsigned value."""
+    if not value or "." not in value:
+        return None
+    body, _, sig = value.rpartition(".")
+    if not body or not sig:
+        return None
+    try:
+        expected = hmac.new(_get_session_secret(), body.encode("utf-8"), hashlib.sha256).hexdigest()
+    except Exception:
+        return None
+    if not hmac.compare_digest(sig, expected):
+        return None
+
+    user_part, dot, issued = body.rpartition(".")
+    if dot and user_part and issued.isdigit():
+        issued_ms = int(issued)
+        now = time.time()
+        if issued_ms / 1000 + SESSION_TTL_SECONDS < now or issued_ms / 1000 > now + 300:
+            return None
+        return user_part, issued_ms
+    # App user ids never contain ".", so a dot-free body is a legacy token.
+    return body, None
 
 
 def verify_session(value: Optional[str]) -> Optional[str]:
-    """Return the user_id from a validly-signed session token, else None.
+    """Return the user_id from a validly-signed, unexpired session token, else None."""
+    parsed = parse_session(value)
+    return parsed[0] if parsed else None
 
-    Constant-time comparison. Never trusts an unsigned value."""
-    if not value or "." not in value:
-        return None
-    user_id, _, sig = value.rpartition(".")
-    if not user_id or not sig:
-        return None
-    try:
-        expected = hmac.new(_get_session_secret(), user_id.encode("utf-8"), hashlib.sha256).hexdigest()
-    except Exception:
-        return None
-    if hmac.compare_digest(sig, expected):
-        return user_id
-    return None
+
+def session_is_revoked(user, issued_at_ms: Optional[int]) -> bool:
+    """True when the user logged out after this token was issued (legacy
+    tokens, which carry no issue time, count as issued before any logout)."""
+    revoked_at = getattr(user, "sessions_revoked_at", None)
+    if not revoked_at:
+        return False
+    if issued_at_ms is None:
+        return True
+    return issued_at_ms <= int(revoked_at.timestamp() * 1000)
 
 
 OAUTH_STATE_MAX_AGE_SECONDS = 600
@@ -207,8 +248,15 @@ def decrypt_token(encrypted_token_bytes: bytes) -> str:
     return decrypted.decode("utf-8")
 
 
-async def get_current_user_id(request: Request, strict: bool = False) -> str:
-    """FastAPI dependency wrapper — see resolve_current_user_id."""
+def get_current_user_id(request: Request, strict: bool = False) -> str:
+    """FastAPI dependency wrapper — see resolve_current_user_id.
+
+    Plain `def` on purpose: FastAPI runs sync dependencies in its threadpool.
+    As `async def`, this ran its blocking DB pool checkout on the event loop;
+    under ~15+ concurrent requests the pool ran dry, the loop blocked waiting
+    for a connection, and the loop is also what schedules the teardown that
+    returns connections — so the server deadlocked until the 30s pool timeout.
+    """
     return resolve_current_user_id(request, strict=strict)
 
 
@@ -237,12 +285,24 @@ def resolve_current_user_id(request: Request, strict: bool = False) -> str:
     # Mock mode used to also accept an unsigned cookie/Bearer/x-user-id/
     # ?user_id value, which let anyone act as any user on the public demo
     # instance just by knowing (or guessing) their user id.
+    from backend.db.session import SessionLocal
+    from backend.db.models import User, UserProfile
+
     session_id = None
-    for candidate in (cookie_val, bearer_val):
-        verified = verify_session(candidate)
-        if verified:
-            session_id = verified
+    issued_at_ms = None
+    db = SessionLocal()
+    try:
+        for candidate in (cookie_val, bearer_val):
+            parsed = parse_session(candidate)
+            if not parsed:
+                continue
+            candidate_user = db.query(User).filter(User.id == parsed[0]).first()
+            if candidate_user is not None and session_is_revoked(candidate_user, parsed[1]):
+                continue
+            session_id, issued_at_ms = parsed
             break
+    finally:
+        db.close()
 
     if not session_id:
         if is_mock and not strict:
@@ -250,9 +310,9 @@ def resolve_current_user_id(request: Request, strict: bool = False) -> str:
         else:
             raise HTTPException(status_code=401, detail="Session expired or unauthenticated.")
 
-    from backend.db.session import SessionLocal
-    from backend.db.models import User, UserProfile
-    
+    # /auth/me reads this to decide whether to hand out a renewed token.
+    request.state.session_issued_at_ms = issued_at_ms
+
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.id == session_id).first()
@@ -273,7 +333,11 @@ def resolve_current_user_id(request: Request, strict: bool = False) -> str:
                     favorite_cuisines=["indian"]
                 )
                 db.add(profile)
-                db.commit()
+                try:
+                    db.commit()
+                except IntegrityError:
+                    # A concurrent request provisioned the same user first.
+                    db.rollback()
             else:
                 raise HTTPException(status_code=401, detail="User session not found in database.")
         return session_id

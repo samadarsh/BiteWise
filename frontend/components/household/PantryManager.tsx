@@ -21,6 +21,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   Dairy: "bg-info/10 text-info border-info/20",
   Proteins: "bg-pink-500/10 text-pink-400 border-pink-500/20",
   Vegetables: "bg-warning/10 text-warning border-warning/20",
+  Fruits: "bg-success/10 text-success border-success/20",
   Staples: "bg-purple-500/10 text-purple-400 border-purple-500/20",
   Spices: "bg-brand/10 text-brand border-brand/20",
   Bakery: "bg-yellow-600/10 text-yellow-500 border-yellow-600/20",
@@ -154,6 +155,7 @@ export default function PantryManager({ pantry, onAddOrUpdateItem, onDeleteItem,
                 <option value="Dairy">Dairy</option>
                 <option value="Proteins">Proteins</option>
                 <option value="Vegetables">Vegetables</option>
+                <option value="Fruits">Fruits</option>
                 <option value="Spices">Spices</option>
                 <option value="Bakery">Bakery</option>
                 <option value="Other">Other</option>
