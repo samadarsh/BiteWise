@@ -118,6 +118,21 @@ def init_db():
                 if "bulk_use_count" not in pantry_columns:
                     conn.execute(text("ALTER TABLE pantry_items ADD COLUMN bulk_use_count INTEGER DEFAULT 0"))
 
+    # 2b. Unique indexes that create_all doesn't add to tables that already
+    # exist (any dialect). If an older database already holds duplicates the
+    # index can't be built; the app still runs, and the warning says why.
+    from sqlalchemy import text as _text
+    for index_sql in (
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_household_members_user_id ON household_members (user_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_grocery_lists_household_id ON grocery_lists (household_id)",
+    ):
+        try:
+            with engine.begin() as conn:
+                conn.execute(_text(index_sql))
+        except Exception as e:
+            from agent.observability import log_warn
+            log_warn(f"Could not create unique index (duplicate rows need merging first): {index_sql} | {e}")
+
     # 3. Reap long-abandoned guest accounts (no scheduler infra exists yet —
     # a server restart is the simplest trigger available that still stops
     # unbounded growth from POST /auth/guest, which has no TTL otherwise).
@@ -222,15 +237,20 @@ async def swiggy_mcp_error_handler(request: Request, exc: SwiggyMCPError) -> JSO
             from backend.db.session import SessionLocal
             from backend.db.models import SwiggyToken
 
-            # strict: a session-less mock request must not purge demo_user's token.
-            user_id = await get_current_user_id(request, strict=True)
-            if user_id:
+            from starlette.concurrency import run_in_threadpool
+
+            def _purge_token() -> None:
+                # strict: a session-less mock request must not purge demo_user's token.
+                user_id = get_current_user_id(request, strict=True)
                 db = SessionLocal()
                 try:
                     db.query(SwiggyToken).filter(SwiggyToken.user_id == user_id).delete()
                     db.commit()
                 finally:
                     db.close()
+
+            # Blocking DB work stays off the event loop.
+            await run_in_threadpool(_purge_token)
         except Exception:
             pass
         return JSONResponse(status_code=401, content={"error_code": "swiggy_reauth_required", "detail": exc.message})

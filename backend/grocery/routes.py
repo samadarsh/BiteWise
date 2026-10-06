@@ -12,7 +12,7 @@ from backend.grocery.models import GroceryList, GroceryListItem, RecipePlan, Ins
 from backend.pantry.models import PantryItem
 from backend.pantry.routes import mark_grocery_items_purchased_and_restock
 from backend.household.service import get_or_create_user_household
-from backend.household.intelligence import group_grocery_items
+from backend.household.intelligence import group_grocery_items, _get_or_create_grocery_list
 from backend.mcp.swiggy_instamart_client import ProductionSwiggyInstamartClient
 from mcp.instamart_mock import MockSwiggyInstamartMCP
 from mcp.mcp_client import SwiggyAuthError, SwiggyMCPError
@@ -92,18 +92,7 @@ class CartPreviewResponse(BaseModel):
 
 # Helper
 def get_or_create_active_list(db: Session, household_id: str) -> GroceryList:
-    active_list = db.query(GroceryList).filter(GroceryList.household_id == household_id).first()
-    if not active_list:
-        list_id = f"list_{secrets.token_hex(4)}"
-        active_list = GroceryList(
-            id=list_id,
-            household_id=household_id,
-            name="Shopping List"
-        )
-        db.add(active_list)
-        db.commit()
-        db.refresh(active_list)
-    return active_list
+    return _get_or_create_grocery_list(db, household_id)
 
 
 # Endpoints

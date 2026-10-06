@@ -9,6 +9,7 @@ Updated for qualitative stock levels (full/half/low/empty).
 import secrets
 import datetime
 from typing import List, Dict, Any, Optional
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.household.models import Household, HouseholdMember
@@ -815,18 +816,24 @@ def group_grocery_items(
 # ──────────────────────────────────────────────
 
 def _get_or_create_grocery_list(db: Session, household_id: str) -> GroceryList:
-    """Finds or creates the active grocery list for the household."""
+    """Finds or creates the household's grocery list. grocery_lists.household_id
+    is unique, so a concurrent duplicate creation fails and re-reads the
+    winner's list rather than splitting items across two lists."""
     active_list = db.query(GroceryList).filter(
         GroceryList.household_id == household_id
     ).first()
-    if not active_list:
-        list_id = f"list_{secrets.token_hex(4)}"
-        active_list = GroceryList(
-            id=list_id,
-            household_id=household_id,
-            name="Shopping List",
-        )
-        db.add(active_list)
+    if active_list:
+        return active_list
+    active_list = GroceryList(
+        id=f"list_{secrets.token_hex(4)}",
+        household_id=household_id,
+        name="Shopping List",
+    )
+    db.add(active_list)
+    try:
         db.commit()
-        db.refresh(active_list)
+    except IntegrityError:
+        db.rollback()
+        return db.query(GroceryList).filter(GroceryList.household_id == household_id).one()
+    db.refresh(active_list)
     return active_list

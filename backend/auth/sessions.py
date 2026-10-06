@@ -248,8 +248,15 @@ def decrypt_token(encrypted_token_bytes: bytes) -> str:
     return decrypted.decode("utf-8")
 
 
-async def get_current_user_id(request: Request, strict: bool = False) -> str:
-    """FastAPI dependency wrapper — see resolve_current_user_id."""
+def get_current_user_id(request: Request, strict: bool = False) -> str:
+    """FastAPI dependency wrapper — see resolve_current_user_id.
+
+    Plain `def` on purpose: FastAPI runs sync dependencies in its threadpool.
+    As `async def`, this ran its blocking DB pool checkout on the event loop;
+    under ~15+ concurrent requests the pool ran dry, the loop blocked waiting
+    for a connection, and the loop is also what schedules the teardown that
+    returns connections — so the server deadlocked until the 30s pool timeout.
+    """
     return resolve_current_user_id(request, strict=strict)
 
 

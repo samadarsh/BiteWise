@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, func, Float, Integer
+from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, func, Float, Integer, Index
 from sqlalchemy.orm import relationship
 from backend.db.session import Base
 
@@ -19,6 +19,10 @@ class Household(Base):
 
 class HouseholdMember(Base):
     __tablename__ = "household_members"
+    # One household per app user (NULL user_id = a family member with no
+    # login, any number allowed). Lets get_or_create_user_household detect a
+    # concurrent duplicate creation instead of silently making two.
+    __table_args__ = (Index("uq_household_members_user_id", "user_id", unique=True),)
 
     id = Column(String, primary_key=True, index=True)
     household_id = Column(String, ForeignKey("households.id"), nullable=False)
