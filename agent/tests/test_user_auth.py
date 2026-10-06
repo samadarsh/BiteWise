@@ -190,3 +190,61 @@ def test_logout():
         response = client.post("/auth/logout")
         assert response.status_code == 200
         assert response.json()["success"] is True
+
+
+def _legacy_token(user_id):
+    import hmac, hashlib
+    from backend.auth.sessions import _get_session_secret
+    return f"{user_id}.{hmac.new(_get_session_secret(), user_id.encode(), hashlib.sha256).hexdigest()}"
+
+
+def test_session_tokens_expire():
+    import time
+    from backend.auth.sessions import sign_session, SESSION_TTL_SECONDS
+    os.environ["USE_MOCK_MCP"] = "false"
+    with TestClient(app) as client:
+        user_id = client.post("/auth/guest").json()["user_id"]
+        old_ms = int((time.time() - SESSION_TTL_SECONDS - 60) * 1000)
+        stale = sign_session(user_id, issued_at_ms=old_ms)
+    with TestClient(app) as fresh:
+        me = fresh.get("/auth/me", headers={"Authorization": f"Bearer {stale}"}).json()
+        assert me["authenticated"] is False
+
+
+def test_logout_revokes_existing_tokens():
+    """Regression: tokens were a bare HMAC of the user id, so a copied token
+    (or the frontend's localStorage Bearer copy) kept working after logout."""
+    os.environ["USE_MOCK_MCP"] = "false"
+    with TestClient(app) as client:
+        token = client.post("/auth/guest").json()["session_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        assert client.get("/auth/me", headers=headers).json()["authenticated"] is True
+        assert client.post("/auth/logout", headers=headers).status_code == 200
+    with TestClient(app) as other:
+        assert other.get("/auth/me", headers=headers).json()["authenticated"] is False
+        assert other.get("/me/profile", headers=headers).status_code == 401
+
+
+def test_legacy_token_still_works_and_is_renewed_until_logout():
+    os.environ["USE_MOCK_MCP"] = "false"
+    with TestClient(app) as client:
+        user_id = client.post("/auth/guest").json()["user_id"]
+    legacy = _legacy_token(user_id)
+    with TestClient(app) as client:
+        me = client.get("/auth/me", headers={"Authorization": f"Bearer {legacy}"}).json()
+        assert me["authenticated"] is True and me["user"]["id"] == user_id
+        renewed = me["session_token"]
+        assert renewed and renewed.count(".") == 2
+    with TestClient(app) as client:
+        client.post("/auth/logout", headers={"Authorization": f"Bearer {renewed}"})
+    with TestClient(app) as client:
+        assert client.get("/auth/me", headers={"Authorization": f"Bearer {legacy}"}).json()["authenticated"] is False
+
+
+def test_fresh_token_is_not_reissued_on_every_request():
+    os.environ["USE_MOCK_MCP"] = "false"
+    with TestClient(app) as client:
+        token = client.post("/auth/guest").json()["session_token"]
+        me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"}).json()
+        assert me["authenticated"] is True
+        assert me["session_token"] is None

@@ -65,6 +65,8 @@ def init_db():
                     conn.execute(text("ALTER TABLE users ADD COLUMN avatar_url VARCHAR"))
                 if "auth_provider" not in user_cols:
                     conn.execute(text("ALTER TABLE users ADD COLUMN auth_provider VARCHAR DEFAULT 'guest'"))
+                if "sessions_revoked_at" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN sessions_revoked_at DATETIME"))
         if inspector.has_table("user_profiles"):
             columns = [col["name"] for col in inspector.get_columns("user_profiles")]
             new_columns = [
@@ -220,7 +222,8 @@ async def swiggy_mcp_error_handler(request: Request, exc: SwiggyMCPError) -> JSO
             from backend.db.session import SessionLocal
             from backend.db.models import SwiggyToken
 
-            user_id = await get_current_user_id(request, strict=False)
+            # strict: a session-less mock request must not purge demo_user's token.
+            user_id = await get_current_user_id(request, strict=True)
             if user_id:
                 db = SessionLocal()
                 try:

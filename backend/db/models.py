@@ -13,6 +13,9 @@ class User(Base):
     auth_provider = Column(String, default="guest", nullable=False)
     swiggy_user_ref = Column(String, unique=True, nullable=True, index=True)
     created_at = Column(DateTime, default=func.now(), nullable=False)
+    # Session tokens issued at or before this moment are rejected (set on
+    # logout). Server-local naive time, like every other timestamp here.
+    sessions_revoked_at = Column(DateTime, nullable=True)
 
     # Relationships
     token = relationship("SwiggyToken", back_populates="user", uselist=False, cascade="all, delete-orphan")

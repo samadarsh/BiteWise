@@ -1041,6 +1041,8 @@ export interface BiteWiseUser {
 export interface AuthStatusResponse {
   authenticated: boolean;
   user: BiteWiseUser | null;
+  /** Present when the backend renewed the session (legacy or ageing token). */
+  session_token?: string | null;
 }
 
 export interface GoogleLoginPayload {

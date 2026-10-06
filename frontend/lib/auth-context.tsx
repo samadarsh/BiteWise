@@ -37,6 +37,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true);
       const res = await fetchAuthStatus();
       if (res.authenticated && res.user) {
+        // Keep the Bearer copy in step with the renewed cookie, so it
+        // doesn't expire (or survive a logout) on its own schedule.
+        if (res.session_token && typeof window !== "undefined") {
+          localStorage.setItem("bitewise_session_id", res.session_token);
+        }
         setUser(res.user);
       } else {
         setUser(null);
@@ -123,13 +128,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setIsLoading(true);
       await logoutApi();
+    } catch (err) {
+      console.error("Logout failed:", err);
+    } finally {
+      // Drop the local session even if the request failed, so the user is
+      // never left looking signed in after pressing "log out".
       if (typeof window !== "undefined") {
         localStorage.removeItem("bitewise_session_id");
       }
       setUser(null);
-    } catch (err) {
-      console.error("Logout failed:", err);
-    } finally {
       setIsLoading(false);
     }
   }, []);
