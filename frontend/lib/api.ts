@@ -206,6 +206,18 @@ export interface CartInfo {
   };
 }
 
+/** GET /orders/session/{id}/track — Swiggy's own status for a placed order. */
+export interface OrderTracking {
+  tracking_available: boolean;
+  active: boolean;
+  order_id: string;
+  order_status: string | null;
+  title: string | null;
+  subtitle: string | null;
+  eta_text: string | null;
+  progress_percentage: number | null;
+}
+
 export interface CartResponse {
   session_id: string;
   cart: CartInfo;
@@ -596,6 +608,10 @@ export const api = {
   /**
    * Applies a coupon code to the session cart.
    */
+  async trackOrder(sessionId: string): Promise<OrderTracking> {
+    return apiFetch<OrderTracking>(`/orders/session/${sessionId}/track`);
+  },
+
   async applyCoupon(sessionId: string, couponCode: string): Promise<CartResponse> {
     return apiFetch<CartResponse>(`/orders/session/${sessionId}/coupon/apply`, {
       method: "POST",

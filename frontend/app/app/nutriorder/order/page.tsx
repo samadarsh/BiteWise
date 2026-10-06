@@ -73,7 +73,7 @@ export default function NutriOrderOrderPage() {
     orderPlacing,
     handlePlaceOrder,
     placedOrderId,
-    trackingStep,
+    tracking,
     handleReset,
     showFeedbackModal,
     setShowFeedbackModal,
@@ -106,41 +106,39 @@ export default function NutriOrderOrderPage() {
               </h2>
             </div>
             <div className="sm:text-right">
-              <p className="text-[10px] sm:text-xs text-muted">Estimated Delivery Time</p>
-              <p className="text-xl sm:text-2xl font-bold text-nutri">{selectedMeal?.eta || "Not available"}</p>
+              <p className="text-[10px] sm:text-xs text-muted">Estimated Delivery</p>
+              <p className="text-xl sm:text-2xl font-bold text-nutri">{tracking?.eta_text || selectedMeal?.eta || "Not available"}</p>
             </div>
           </div>
 
-          <p className="text-[10px] text-subtle -mb-2">Illustrative progress only — BiteWise doesn&apos;t receive live delivery updates yet. Check the Swiggy app for real-time tracking.</p>
-          <div className="relative w-full my-2 sm:my-4 px-1 sm:px-8 overflow-visible">
-            <div className="absolute left-[12.5%] right-[12.5%] top-4 sm:top-5 h-1 bg-border rounded-full" />
-            <div className="absolute left-[12.5%] top-4 sm:top-5 h-1 bg-nutri rounded-full transition-all duration-1000" style={{ width: `${Math.min(75, Math.max(0, (trackingStep / 3) * 75))}%` }} />
-            <div className="relative z-10 grid grid-cols-4 gap-0">
-              {[
-                { label: "Placed", desc: "Order sent to Swiggy" },
-                { label: "Accepted", desc: "Restaurant confirmed" },
-                { label: "Preparing", desc: "Meal being cooked" },
-                { label: "Arriving", desc: "Out for delivery" },
-              ].map((step, idx) => {
-                const active = trackingStep >= idx;
-                const isCurrent = trackingStep === idx && trackingStep < 3;
-                return (
-                  <div key={idx} className="flex min-w-0 flex-col items-center text-center">
-                    <div className={`relative z-10 h-8 w-8 sm:h-10 sm:w-10 rounded-full flex items-center justify-center font-bold text-[10px] sm:text-xs border-2 transition-all duration-500 ${active ? "bg-nutri border-nutri text-nutri-contrast shadow-md" : "bg-surface-2 border-border-strong text-subtle"} ${isCurrent ? "ring-2 ring-nutri/30 ring-offset-2 ring-offset-surface" : ""}`}>
-                      {active && trackingStep > idx ? (
-                        <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                      ) : isCurrent ? (
-                        <div className="h-2 w-2 sm:h-2.5 sm:w-2.5 bg-nutri-contrast rounded-full animate-pulse" />
-                      ) : (
-                        idx + 1
-                      )}
-                    </div>
-                    <p className={`max-w-full truncate text-[10px] sm:text-xs font-semibold mt-2 sm:mt-3 ${active ? "text-text" : "text-subtle"}`}>{step.label}</p>
-                    <p className="text-[8px] sm:text-[10px] text-subtle max-w-[70px] sm:max-w-[100px] mt-0.5 leading-tight hidden sm:block">{step.desc}</p>
+          {/* Live status straight from Swiggy's track_food_order — no
+              invented "Preparing / Arriving" steps. */}
+          <div className="bg-surface-2 border border-border rounded-xl p-4 sm:p-5 flex flex-col gap-3">
+            {placedOrderId === CONFIRMED_NO_ID_SENTINEL || (tracking && !tracking.tracking_available) ? (
+              <p className="text-xs sm:text-sm text-muted">Swiggy confirmed the order but didn&apos;t return an order ID, so live tracking isn&apos;t available here. Track it in the Swiggy app.</p>
+            ) : !tracking ? (
+              <p className="text-xs sm:text-sm text-muted">Fetching live status from Swiggy…</p>
+            ) : !tracking.active ? (
+              <p className="text-xs sm:text-sm text-muted">{tracking.title || "This order is no longer active on Swiggy — it has likely been delivered."}</p>
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-bold text-text text-sm sm:text-base">{tracking.title || tracking.order_status || "Order in progress"}</p>
+                    {tracking.subtitle && <p className="text-xs text-muted mt-0.5">{tracking.subtitle}</p>}
                   </div>
-                );
-              })}
-            </div>
+                  {tracking.order_status && (
+                    <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border border-nutri/20 bg-nutri/10 text-nutri uppercase tracking-wider">{tracking.order_status}</span>
+                  )}
+                </div>
+                {tracking.progress_percentage != null && (
+                  <div className="h-2 w-full bg-border rounded-full overflow-hidden">
+                    <div className="h-full bg-nutri rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, Math.max(0, tracking.progress_percentage))}%` }} />
+                  </div>
+                )}
+                <p className="text-[10px] text-subtle">Live status from Swiggy · refreshes every 15 seconds</p>
+              </>
+            )}
           </div>
 
           <div className="bg-surface-2 border border-border rounded-xl p-4 sm:p-5 flex flex-col gap-3 sm:gap-4 mt-2 sm:mt-4">
@@ -154,8 +152,8 @@ export default function NutriOrderOrderPage() {
             </div>
             <div className="grid grid-cols-3 gap-2 sm:gap-4 text-center">
               <div className="bg-surface border border-border rounded-lg p-2 sm:p-2.5">
-                <p className="text-[8px] sm:text-[10px] text-subtle uppercase font-bold tracking-wider">Macros Met</p>
-                <p className="text-xs sm:text-sm font-bold text-text mt-0.5 sm:mt-1">100%</p>
+                <p className="text-[8px] sm:text-[10px] text-subtle uppercase font-bold tracking-wider">Payment</p>
+                <p className="text-xs sm:text-sm font-bold text-text mt-0.5 sm:mt-1">Cash on delivery</p>
               </div>
               <div className="bg-surface border border-border rounded-lg p-2 sm:p-2.5">
                 <p className="text-[8px] sm:text-[10px] text-subtle uppercase font-bold tracking-wider">Protein Total</p>

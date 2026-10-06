@@ -555,8 +555,12 @@ def place_order(
                 error_detail = f"Checkout blocked: A recent order was already placed. Duplicate prevention active. Detail: {error_detail}"
             raise HTTPException(status_code=status_code, detail=error_detail)
 
-        # Transition status to ORDER_PLACED
-        transition_session_status(db, session_record, OrderStatus.ORDER_PLACED)
+        # Transition status to ORDER_PLACED (the event keeps Swiggy's order
+        # id so /track can follow the real order later).
+        transition_session_status(
+            db, session_record, OrderStatus.ORDER_PLACED,
+            payload={"order_id": res.get("order_id")},
+        )
 
         # Record final details
         session_record.selected_restaurant_id = cart_info.get("restaurantId") or session_record.selected_restaurant_id
@@ -592,7 +596,82 @@ def place_order(
 
 
 import uuid
-from backend.db.models import OrderFeedback, UserProfile
+from backend.db.models import OrderEvent, OrderFeedback, UserProfile
+
+
+def _placed_order_id(db: Session, session_id: str) -> Optional[str]:
+    events = (
+        db.query(OrderEvent)
+        .filter(OrderEvent.order_session_id == session_id)
+        .order_by(OrderEvent.id.desc())
+        .all()
+    )
+    for e in events:
+        payload = e.payload or {}
+        if payload.get("to_status") == OrderStatus.ORDER_PLACED.value and payload.get("order_id"):
+            return str(payload["order_id"])
+    return None
+
+
+def _tracking_view(data: Any, order_id: str) -> Dict[str, Any]:
+    """Normalizes track_food_order. Live (track_food_order.md):
+    data.orders[] of {orderId, title, subtitle, etaText, orderStatus,
+    progressPercentage (string)}; an order missing from the list is no
+    longer active. Mock: a flat {orderId, status, message}."""
+    view: Dict[str, Any] = {"active": False, "order_id": order_id, "order_status": None, "title": None,
+                            "subtitle": None, "eta_text": None, "progress_percentage": None}
+    if not isinstance(data, dict):
+        return view
+    orders = data.get("orders")
+    if isinstance(orders, list):
+        match = next((o for o in orders if isinstance(o, dict) and str(o.get("orderId")) == order_id), None)
+        if not match:
+            view["title"] = data.get("statusMessage")
+            return view
+        try:
+            progress = float(str(match.get("progressPercentage")).rstrip("%")) if match.get("progressPercentage") is not None else None
+        except ValueError:
+            progress = None
+        view.update(active=True, order_status=match.get("orderStatus"), title=match.get("title"),
+                    subtitle=match.get("subtitle"), eta_text=match.get("etaText"), progress_percentage=progress)
+        return view
+    view.update(active=True, order_status=data.get("status"), title=data.get("message"))
+    return view
+
+
+@router.get("/session/{session_id}/track")
+def track_order(
+    session_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """Real delivery status for a placed order via Swiggy's track_food_order.
+    The frontend used to animate "Accepted / Preparing / Arriving" on a
+    timer. Swiggy asks clients to poll no faster than every 10 seconds
+    (order-food.md)."""
+    session_record = db.query(OrderSession).filter(
+        OrderSession.id == session_id,
+        OrderSession.user_id == user_id
+    ).first()
+    if not session_record:
+        raise HTTPException(status_code=404, detail="Order session not found.")
+    if session_record.status not in (OrderStatus.ORDER_PLACED.value, OrderStatus.TRACKING.value):
+        raise HTTPException(status_code=400, detail="This order hasn't been placed yet.")
+
+    order_id = _placed_order_id(db, session_id)
+    if not order_id:
+        # Without Swiggy's order id, an id-less call returns *all* active
+        # orders — we can't tell which one is this order.
+        return {"tracking_available": False, **_tracking_view(None, "")}
+
+    try:
+        from backend.mcp.swiggy_client import ProductionSwiggyClient
+        data = ProductionSwiggyClient(user_id=user_id).track_food_order(orderId=order_id)
+    except (SwiggyAuthError, SwiggyMCPError):
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Order tracking failed: {str(e)}")
+    return {"tracking_available": True, **_tracking_view(data, order_id)}
 
 class ApplyCouponSchema(BaseModel):
     coupon_code: str = Field(..., min_length=1)
