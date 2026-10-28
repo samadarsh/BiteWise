@@ -25,6 +25,7 @@
   <img src="https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
   <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js 16" />
   <img src="https://img.shields.io/badge/Swiggy%20MCP-Food%20%2B%20Instamart-FC8019" alt="Swiggy MCP: Food and Instamart" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" /></a>
 </p>
 
 ---
@@ -320,7 +321,6 @@ Issues and pull requests are welcome. Before opening a PR:
 
 ## License
 
-No license has been chosen yet, so all rights are reserved by the author. Please
-open an issue if you'd like to use BiteWise beyond reading and evaluating it.
+BiteWise is released under the [MIT License](LICENSE).
 
 <p align="right"><a href="#readme-top">↑ back to top</a></p>
